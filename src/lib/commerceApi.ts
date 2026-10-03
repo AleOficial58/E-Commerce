@@ -1,5 +1,4 @@
 import type { User } from 'firebase/auth'
-import { getFirebaseServices } from './firebase'
 
 export type ShippingAddress = {
   name: string
@@ -30,6 +29,15 @@ export type CustomerOrderStatus = {
   status: string
   total: number
   items: { id: string; quantity: number }[]
+}
+
+function isCustomerOrderStatus(value: unknown): value is CustomerOrderStatus {
+  return typeof value === 'object' && value !== null &&
+    'id' in value && typeof value.id === 'string' &&
+    'paymentStatus' in value && typeof value.paymentStatus === 'string' &&
+    'status' in value && typeof value.status === 'string' &&
+    'total' in value && typeof value.total === 'number' &&
+    'items' in value && Array.isArray(value.items)
 }
 
 export type AdminOrder = {
@@ -63,60 +71,68 @@ export async function checkAdminAccess(user: User): Promise<boolean> {
   return result.isAdmin
 }
 
-export async function watchCustomerOrder(
+export function pollCustomerOrder(
   user: User,
   orderId: string,
   onUpdate: (result: { order: CustomerOrderStatus }) => void,
   onError: (error: Error) => void,
-): Promise<() => void> {
-  const { app } = await getFirebaseServices()
-  const firestoreSdk = await import('firebase/firestore')
-  const db = firestoreSdk.getFirestore(app)
+): () => void {
+  let active = true
+  let timeout: number | undefined
 
-  return firestoreSdk.onSnapshot(
-    firestoreSdk.doc(db, 'orders', orderId),
-    (snapshot) => {
-      if (!snapshot.exists()) {
-        onError(new Error('No encontramos el pedido asociado a tu cuenta.'))
-        return
-      }
-
-      const data = snapshot.data()
-      if (data.userId !== user.uid) {
-        onError(new Error('No encontramos el pedido asociado a tu cuenta.'))
-        return
-      }
+  const poll = async () => {
+    try {
+      const result = await apiRequest<unknown>(
+        user,
+        `/api/orders/${encodeURIComponent(orderId)}`,
+      )
       if (
-        typeof data.paymentStatus !== 'string' ||
-        typeof data.status !== 'string' ||
-        typeof data.total !== 'number'
+        typeof result !== 'object' || result === null ||
+        !('order' in result) || !isCustomerOrderStatus(result.order)
       ) {
-        onError(new Error('El servidor devolvió un estado de pedido no válido.'))
-        return
+        throw new Error('El servidor devolvió un estado de pedido no válido.')
       }
 
-      const items = Array.isArray(data.items)
-        ? data.items.flatMap((item: unknown) =>
-            typeof item === 'object' && item !== null &&
-            'id' in item && typeof item.id === 'string' &&
-            'quantity' in item && typeof item.quantity === 'number'
-              ? [{ id: item.id, quantity: item.quantity }]
-              : [],
-          )
-        : []
+      const order = result.order
+      const items = order.items.flatMap((item: unknown) =>
+        typeof item === 'object' && item !== null &&
+        'id' in item && typeof item.id === 'string' &&
+        'quantity' in item && typeof item.quantity === 'number'
+          ? [{ id: item.id, quantity: item.quantity }]
+          : [],
+      )
 
+      if (!active) return
       onUpdate({
         order: {
-          id: snapshot.id,
-          paymentStatus: data.paymentStatus,
-          status: data.status,
-          total: data.total,
+          id: order.id,
+          paymentStatus: order.paymentStatus,
+          status: order.status,
+          total: order.total,
           items,
         },
       })
-    },
-    onError,
-  )
+      if (
+        ['approved', 'rejected', 'cancelled', 'refunded', 'charged_back', 'expired', 'preference_failed']
+          .includes(order.paymentStatus) ||
+        ['payment_failed', 'payment_expired', 'payment_review'].includes(order.status)
+      ) {
+        return
+      }
+    } catch (error) {
+      if (!active) return
+      onError(error instanceof Error ? error : new Error('No pudimos consultar el estado del pedido.'))
+      return
+    }
+
+    if (active) timeout = window.setTimeout(() => void poll(), 3000)
+  }
+
+  void poll()
+  return () => {
+    active = false
+    if (timeout !== undefined) window.clearTimeout(timeout)
+  }
 }
 
 export function grantAdminAccess(user: User, email: string): Promise<{ message: string }> {

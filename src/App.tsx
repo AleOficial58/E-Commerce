@@ -18,8 +18,8 @@ import {
   createCheckoutPreference,
   grantAdminAccess,
   loadAdminOrders,
+  pollCustomerOrder,
   updateAdminOrderStatus,
-  watchCustomerOrder,
   type AdminOrder,
   type CustomerOrderStatus,
   type ShippingAddress,
@@ -735,6 +735,10 @@ function Storefront() {
     currentUrl.searchParams.delete('merchant_order_id')
     currentUrl.searchParams.delete('status')
     currentUrl.searchParams.delete('payment_type')
+    currentUrl.searchParams.delete('preference_id')
+    currentUrl.searchParams.delete('site_id')
+    currentUrl.searchParams.delete('processing_mode')
+    currentUrl.searchParams.delete('merchant_account_id')
     window.history.replaceState(
       window.history.state,
       '',
@@ -784,7 +788,7 @@ function Storefront() {
       setPaymentReturnStatus('pending')
     }
 
-    void watchCustomerOrder(
+    unsubscribe = pollCustomerOrder(
       user,
       paymentReturnOrderId,
       handleOrderUpdate,
@@ -794,15 +798,7 @@ function Storefront() {
         setPaymentReturnMessage(error instanceof Error ? error.message : 'No pudimos recibir actualizaciones del pedido.')
         setPaymentReturnStatus('error')
       },
-    ).then((stopWatching) => {
-      if (active) unsubscribe = stopWatching
-      else stopWatching()
-    }).catch((error: unknown) => {
-      if (!active) return
-      console.error('No se pudo iniciar la actualización en tiempo real del pedido.', error)
-      setPaymentReturnMessage(error instanceof Error ? error.message : 'No pudimos consultar el estado del pedido.')
-      setPaymentReturnStatus('error')
-    })
+    )
 
     return () => {
       active = false
