@@ -1117,13 +1117,28 @@ app.post(
       }
 
       const payment = await getMercadoPagoPayment(paymentId)
-      if (
-        String(payment.id) !== paymentId ||
-        payment.external_reference !== orderId ||
-        (mercadoPagoMode === 'sandbox' && payment.live_mode !== false) ||
-        (mercadoPagoMode === 'production' && payment.live_mode !== true)
-      ) {
-        throw new ApiError('Mercado Pago no confirmó un pago válido para este pedido.', 409)
+      const paymentIdMatches = String(payment.id) === paymentId
+      const orderReferenceMatches = payment.external_reference === orderId
+      const paymentModeMatches = mercadoPagoMode === 'sandbox'
+        ? payment.live_mode === false
+        : payment.live_mode === true
+
+      if (!paymentIdMatches || !orderReferenceMatches || !paymentModeMatches) {
+        console.warn('No se pudo asociar el pago consultado con el pedido.', {
+          paymentIdMatches,
+          orderReferenceMatches,
+          paymentModeMatches,
+          configuredMode: mercadoPagoMode,
+          liveMode: payment.live_mode ?? null,
+        })
+        throw new ApiError(
+          !paymentModeMatches
+            ? 'El pago devuelto no pertenece al modo configurado en la tienda.'
+            : !orderReferenceMatches
+              ? 'Mercado Pago no asoció este pago con el número de pedido de la tienda.'
+              : 'Mercado Pago devolvió un identificador de pago distinto al consultado.',
+          409,
+        )
       }
 
       await settleMercadoPagoPayment(payment)
