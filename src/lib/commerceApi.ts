@@ -76,12 +76,21 @@ export function pollCustomerOrder(
   orderId: string,
   onUpdate: (result: { order: CustomerOrderStatus }) => void,
   onError: (error: Error) => void,
+  paymentId = '',
 ): () => void {
   let active = true
   let timeout: number | undefined
+  let paymentNeedsSync = true
 
   const poll = async () => {
     try {
+      if (paymentNeedsSync) {
+        await apiRequest(user, `/api/orders/${encodeURIComponent(orderId)}/payment-sync`, {
+          method: 'POST',
+          body: { paymentId },
+        })
+        paymentNeedsSync = false
+      }
       const result = await apiRequest<unknown>(
         user,
         `/api/orders/${encodeURIComponent(orderId)}`,

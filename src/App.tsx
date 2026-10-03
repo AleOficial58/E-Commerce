@@ -188,17 +188,22 @@ const emptyCustomerProfile: CustomerProfile = {
   postalCode: '',
 }
 
-function getPaymentReturnParams(): { orderId: string } {
+function getPaymentReturnParams(): { orderId: string; paymentId: string } {
   const currentUrl = new URL(window.location.href)
   const orderId =
     currentUrl.searchParams.get('order_id') ??
     currentUrl.searchParams.get('external_reference') ??
     ''
+  const paymentId =
+    currentUrl.searchParams.get('payment_id') ??
+    currentUrl.searchParams.get('collection_id') ??
+    ''
   const isPaymentReturn =
     currentUrl.searchParams.get('payment') === 'return' ||
-    Boolean(orderId)
+    Boolean(orderId) ||
+    Boolean(paymentId)
 
-  return isPaymentReturn ? { orderId } : { orderId: '' }
+  return isPaymentReturn ? { orderId, paymentId } : { orderId: '', paymentId: '' }
 }
 
 const profileCompletionFields: (keyof CustomerProfile)[] = [
@@ -626,6 +631,7 @@ function Storefront() {
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutError, setCheckoutError] = useState('')
   const [paymentReturnOrderId, setPaymentReturnOrderId] = useState(() => getPaymentReturnParams().orderId)
+  const [paymentReturnPaymentId] = useState(() => getPaymentReturnParams().paymentId)
   const [paymentReturnStatus, setPaymentReturnStatus] = useState<
     'checking' | 'approved' | 'pending' | 'failed' | 'review' | 'error'
   >('checking')
@@ -798,13 +804,14 @@ function Storefront() {
         setPaymentReturnMessage(error instanceof Error ? error.message : 'No pudimos recibir actualizaciones del pedido.')
         setPaymentReturnStatus('error')
       },
+      paymentReturnPaymentId,
     )
 
     return () => {
       active = false
       unsubscribe()
     }
-  }, [authLoading, paymentRefreshCount, paymentReturnOrderId, user])
+  }, [authLoading, paymentRefreshCount, paymentReturnOrderId, paymentReturnPaymentId, user])
 
   useEffect(() => {
     if (!hasBlockingOverlay) return

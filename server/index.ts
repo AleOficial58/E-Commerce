@@ -436,6 +436,36 @@ async function getMercadoPagoPayment(paymentId: string): Promise<MercadoPagoPaym
   return payment as MercadoPagoPayment
 }
 
+async function findMercadoPagoPaymentId(orderId: string): Promise<string | null> {
+  const accessToken = getMercadoPagoAccessToken()
+  const url = new URL('https://api.mercadopago.com/v1/payments/search')
+  url.searchParams.set('external_reference', orderId)
+  url.searchParams.set('sort', 'date_created')
+  url.searchParams.set('criteria', 'desc')
+  url.searchParams.set('limit', '10')
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (!response.ok) {
+    console.error('Mercado Pago no permitió buscar pagos del pedido.', { status: response.status })
+    throw new ApiError('No pudimos verificar el pago con Mercado Pago.', 502)
+  }
+
+  const result: unknown = await response.json()
+  if (typeof result !== 'object' || result === null || !('results' in result) || !Array.isArray(result.results)) {
+    throw new ApiError('Mercado Pago devolvió una lista de pagos no válida.', 502)
+  }
+  const paymentIds = result.results.flatMap((payment: unknown) =>
+    typeof payment === 'object' && payment !== null && 'id' in payment &&
+    (typeof payment.id === 'number' || typeof payment.id === 'string') &&
+    /^\d{1,30}$/.test(String(payment.id))
+      ? [String(payment.id)]
+      : [],
+  )
+  return paymentIds[0] ?? null
+}
+
 async function releaseOrderInventory(
   orderId: string,
   paymentStatus: string,
@@ -1111,6 +1141,54 @@ app.post('/api/payments/mercadopago/webhook', async (request, response) => {
     })
   }
 })
+
+app.post(
+  '/api/orders/:orderId/payment-sync',
+  authenticatedActionLimiter,
+  requireFirebaseServices,
+  requireUser,
+  async (request, response, next) => {
+    try {
+      const uid = request.authenticatedUser?.uid
+      const orderIdParam = request.params.orderId
+      const orderId = typeof orderIdParam === 'string' ? orderIdParam : ''
+      const suppliedPaymentId: unknown = request.body?.paymentId
+      if (!uid) throw new ApiError('Iniciá sesión para consultar el pedido.', 401)
+      if (!/^[A-Za-z0-9_-]{1,150}$/.test(orderId)) throw new ApiError('El pedido no es válido.', 400)
+      if (
+        suppliedPaymentId !== undefined &&
+        suppliedPaymentId !== '' &&
+        (typeof suppliedPaymentId !== 'string' || !/^\d{1,30}$/.test(suppliedPaymentId))
+      ) {
+        throw new ApiError('El identificador del pago no es válido.', 400)
+      }
+
+      const order = await firestore.doc(`orders/${orderId}`).get()
+      if (!order.exists || order.get('userId') !== uid) {
+        throw new ApiError('No encontramos ese pedido.', 404)
+      }
+
+      const paymentId = typeof suppliedPaymentId === 'string' && suppliedPaymentId
+        ? suppliedPaymentId
+        : await findMercadoPagoPaymentId(orderId)
+      if (!paymentId) {
+        response.status(200).json({ message: 'Mercado Pago todavía no encontró un pago asociado a este pedido.' })
+        return
+      }
+      const payment = await getMercadoPagoPayment(paymentId)
+      if (
+        String(payment.id) !== paymentId ||
+        payment.external_reference !== orderId
+      ) {
+        throw new ApiError('El pago no corresponde a este pedido.', 409)
+      }
+      await settleMercadoPagoPayment(payment)
+      response.status(200).json({ message: 'Se verificó el estado del pago con Mercado Pago.' })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
 
 app.get(
   '/api/orders/:orderId',
