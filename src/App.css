@@ -5614,6 +5614,88 @@ main {
   opacity: .6;
 }
 
+.lumina-alert-popup {
+  width: min(100% - 32px, 460px) !important;
+  padding: 30px 28px 24px !important;
+  border: 1px solid #f0e6e3;
+  border-radius: 12px !important;
+  background: #fffdfb !important;
+  box-shadow: 0 24px 80px rgb(35 27 31 / 24%) !important;
+}
+
+.lumina-alert-popup .swal2-icon {
+  margin: 2px auto 16px;
+}
+
+.lumina-alert-title {
+  margin: 0 !important;
+  color: #3e3339 !important;
+  font-family: var(--font-heading) !important;
+  font-size: 22px !important;
+  font-weight: 650 !important;
+  letter-spacing: -.035em;
+}
+
+.lumina-alert-message {
+  margin: 10px auto 0 !important;
+  color: #817579 !important;
+  font-size: 13px !important;
+  line-height: 1.65 !important;
+}
+
+.lumina-alert-actions {
+  width: 100%;
+  gap: 10px !important;
+  margin: 23px 0 0 !important;
+}
+
+.lumina-alert-confirm,
+.lumina-alert-cancel {
+  min-height: 42px;
+  padding: 10px 16px;
+  border-radius: 5px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  transition: background-color .18s ease, border-color .18s ease, transform .18s ease;
+}
+
+.lumina-alert-confirm {
+  border: 1px solid #855b68;
+  background: #855b68;
+  color: #fff;
+}
+
+.lumina-alert-confirm:hover {
+  transform: translateY(-1px);
+  border-color: #704653;
+  background: #704653;
+}
+
+.lumina-alert-cancel {
+  border: 1px solid #e8dedc;
+  background: #fff;
+  color: #675a60;
+}
+
+.lumina-alert-cancel:hover {
+  border-color: #d5c4c1;
+  background: #faf5f3;
+}
+
+.lumina-alert-close {
+  width: 34px;
+  height: 34px;
+  border-radius: 50% !important;
+  color: #8a7d82 !important;
+}
+
+.lumina-alert-close:hover {
+  background: #f7efed !important;
+  color: #5c4a52 !important;
+}
+
 @media (max-width: 760px) {
   .category-discovery {
     padding-top: 36px;
@@ -5678,6 +5760,38 @@ main {
 
   .admin-self-revoke-button {
     width: 100%;
+  }
+
+  .lumina-alert-popup {
+    padding: 26px 22px 20px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .lumina-alert-popup {
+    width: calc(100% - 24px) !important;
+    padding: 24px 18px 18px !important;
+    border-radius: 10px !important;
+  }
+
+  .lumina-alert-title {
+    font-size: 20px !important;
+  }
+
+  .lumina-alert-message {
+    font-size: 12px !important;
+  }
+
+  .lumina-alert-actions {
+    flex-direction: column-reverse;
+    gap: 8px !important;
+    margin-top: 19px !important;
+  }
+
+  .lumina-alert-confirm,
+  .lumina-alert-cancel {
+    width: 100%;
+    min-height: 44px;
   }
 }
 

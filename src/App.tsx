@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { User } from 'firebase/auth'
+import Swal from 'sweetalert2'
 import { firebaseReady, getFirebaseServices } from './lib/firebase'
 import {
   loadAndMergeUserStore,
@@ -43,6 +44,7 @@ import { AuthActionPage } from './components/AuthActionPage'
 import { CustomerOrdersPage } from './components/CustomerOrdersPage'
 import { OrderStatusPage } from './components/OrderStatusPage'
 import { OrderMessages } from './components/OrderMessages'
+import 'sweetalert2/dist/sweetalert2.min.css'
 import './App.css'
 
 type IconName =
@@ -1857,7 +1859,29 @@ function Storefront() {
 
   async function handleRevokeOwnAdminAccess() {
     if (!user || !isAdmin || adminRevokeBusy) return
-    if (!window.confirm('¿Querés quitar tu propio acceso de administración? Se cerrará el panel y la página se actualizará.')) return
+    const confirmation = await Swal.fire({
+      icon: 'warning',
+      iconColor: '#a76f7d',
+      title: '¿Quitar tu acceso?',
+      text: 'Vas a dejar de administrar pedidos y productos. La página se actualizará para aplicar el cambio.',
+      showCancelButton: true,
+      showCloseButton: true,
+      reverseButtons: true,
+      focusCancel: true,
+      confirmButtonText: 'Sí, quitar acceso',
+      cancelButtonText: 'Seguir como admin',
+      buttonsStyling: false,
+      customClass: {
+        popup: 'lumina-alert-popup',
+        title: 'lumina-alert-title',
+        htmlContainer: 'lumina-alert-message',
+        actions: 'lumina-alert-actions',
+        confirmButton: 'lumina-alert-confirm',
+        cancelButton: 'lumina-alert-cancel',
+        closeButton: 'lumina-alert-close',
+      },
+    })
+    if (!confirmation.isConfirmed) return
     setAdminRevokeBusy(true)
     setAdminError('')
     try {
