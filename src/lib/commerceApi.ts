@@ -133,13 +133,21 @@ export function pollCustomerOrder(
 
   const poll = async () => {
     let nextPollInterval = 3000
+    let paymentSyncError: Error | null = null
     try {
       if (paymentNeedsSync) {
-        await apiRequest(user, `/api/orders/${encodeURIComponent(orderId)}/payment-sync`, {
-          method: 'POST',
-          body: { paymentId },
-        })
-        paymentNeedsSync = false
+        try {
+          await apiRequest(user, `/api/orders/${encodeURIComponent(orderId)}/payment-sync`, {
+            method: 'POST',
+            body: { paymentId },
+          })
+          paymentNeedsSync = false
+        } catch (error) {
+          if (!active) return
+          paymentSyncError = error instanceof Error
+            ? error
+            : new Error('No pudimos conciliar el pago con Mercado Pago.')
+        }
       }
       const result = await apiRequest<unknown>(
         user,
@@ -156,6 +164,10 @@ export function pollCustomerOrder(
       if (!active) return
       onUpdate({ order })
       nextPollInterval = order.paymentStatus === 'approved' ? 15_000 : 3000
+      if (paymentSyncError && order.paymentStatus !== 'approved') {
+        onError(paymentSyncError)
+        return
+      }
       if (
         ['rejected', 'cancelled', 'refunded', 'charged_back', 'expired', 'preference_failed']
           .includes(order.paymentStatus) ||
