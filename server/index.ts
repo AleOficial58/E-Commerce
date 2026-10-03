@@ -300,12 +300,6 @@ type MercadoPagoPayment = {
 function getMercadoPagoAccessToken(): string {
   const token = process.env.MERCADO_PAGO_ACCESS_TOKEN?.trim()
   if (!token) throw new ApiError('Los pagos online todavía no están configurados.', 503)
-  if (mercadoPagoMode === 'sandbox' && !token.startsWith('TEST-')) {
-    throw new ApiError('La configuración de pagos de prueba no es válida. Usá credenciales TEST de Mercado Pago.', 503)
-  }
-  if (mercadoPagoMode === 'production' && token.startsWith('TEST-')) {
-    throw new ApiError('La configuración productiva no puede usar credenciales TEST de Mercado Pago.', 503)
-  }
   if (mercadoPagoMode === 'production' && process.env.MERCADO_PAGO_ALLOW_PRODUCTION !== 'true') {
     throw new ApiError('Los pagos productivos están deshabilitados hasta completar la habilitación de producción.', 503)
   }
