@@ -500,6 +500,27 @@ async function settleMercadoPagoPayment(payment: MercadoPagoPayment) {
     const orderSnapshot = await transaction.get(orderRef)
     if (!orderSnapshot.exists) throw new ApiError('No encontramos el pedido asociado al pago.', 404)
     const order = orderSnapshot.data() ?? {}
+    const expectedPaymentMode = order.paymentMode
+    const paymentModeMatches =
+      (expectedPaymentMode === 'sandbox' && payment.live_mode === false) ||
+      (expectedPaymentMode === 'production' && payment.live_mode === true)
+    if (!paymentModeMatches) {
+      console.warn('El modo del pago no coincide con el modo guardado en el pedido.', {
+        orderId,
+        expectedMode: expectedPaymentMode ?? null,
+        liveMode: payment.live_mode ?? null,
+      })
+      const modeMismatchMessage = expectedPaymentMode === 'sandbox'
+        ? payment.live_mode === true
+          ? 'Este pedido se creó en modo de prueba, pero Mercado Pago informa que el pago es real. No se confirmó el pedido.'
+          : 'Este pedido se creó en modo de prueba, pero Mercado Pago no confirmó que el pago sea de prueba. No se confirmó el pedido.'
+        : expectedPaymentMode === 'production'
+          ? payment.live_mode === false
+            ? 'Este pedido se creó en modo real, pero Mercado Pago informa que el pago es de prueba. No se confirmó el pedido.'
+            : 'Este pedido se creó en modo real, pero Mercado Pago no confirmó que el pago sea real. No se confirmó el pedido.'
+          : 'El pedido no tiene un modo de pago válido guardado y no se puede confirmar de forma segura.'
+      throw new ApiError(modeMismatchMessage, 409)
+    }
     if (
       typeof payment.transaction_amount !== 'number' ||
       payment.transaction_amount !== order.total ||
@@ -1077,12 +1098,8 @@ app.post('/api/payments/mercadopago/webhook', async (request, response) => {
 
   try {
     const payment = await getMercadoPagoPayment(paymentId)
-    if (
-      String(payment.id) !== paymentId ||
-      (mercadoPagoMode === 'sandbox' && payment.live_mode !== false) ||
-      (mercadoPagoMode === 'production' && payment.live_mode !== true)
-    ) {
-      response.status(409).json({ error: 'El modo o la identidad del pago no coincide.' })
+    if (String(payment.id) !== paymentId) {
+      response.status(409).json({ error: 'Mercado Pago devolvió un identificador de pago distinto al consultado.' })
       return
     }
     await settleMercadoPagoPayment(payment)
@@ -1126,24 +1143,16 @@ app.post(
       const payment = await getMercadoPagoPayment(paymentId)
       const paymentIdMatches = String(payment.id) === paymentId
       const orderReferenceMatches = payment.external_reference === orderId
-      const paymentModeMatches = mercadoPagoMode === 'sandbox'
-        ? payment.live_mode === false
-        : payment.live_mode === true
 
-      if (!paymentIdMatches || !orderReferenceMatches || !paymentModeMatches) {
+      if (!paymentIdMatches || !orderReferenceMatches) {
         console.warn('No se pudo asociar el pago consultado con el pedido.', {
           paymentIdMatches,
           orderReferenceMatches,
-          paymentModeMatches,
-          configuredMode: mercadoPagoMode,
-          liveMode: payment.live_mode ?? null,
         })
         throw new ApiError(
-          !paymentModeMatches
-            ? 'El pago devuelto no pertenece al modo configurado en la tienda.'
-            : !orderReferenceMatches
-              ? 'Mercado Pago no asoció este pago con el número de pedido de la tienda.'
-              : 'Mercado Pago devolvió un identificador de pago distinto al consultado.',
+          !orderReferenceMatches
+            ? 'Mercado Pago no asoció este pago con el número de pedido de la tienda.'
+            : 'Mercado Pago devolvió un identificador de pago distinto al consultado.',
           409,
         )
       }
