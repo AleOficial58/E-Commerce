@@ -23,6 +23,7 @@ import {
   loadAdminOrders,
   loadCustomerOrders,
   pollCustomerOrder,
+  revokeOwnAdminAccess,
   updateAdminShipment,
   updateAdminOrderStatus,
   type AdminOrder,
@@ -679,6 +680,7 @@ function Storefront() {
   const [adminError, setAdminError] = useState('')
   const [adminUserEmail, setAdminUserEmail] = useState('')
   const [adminUserBusy, setAdminUserBusy] = useState(false)
+  const [adminRevokeBusy, setAdminRevokeBusy] = useState(false)
   const [adminProductDraft, setAdminProductDraft] = useState<AdminProductDraft>(emptyAdminProductDraft)
   const [adminProductBusy, setAdminProductBusy] = useState(false)
   const [adminEditingProductId, setAdminEditingProductId] = useState<string | null>(null)
@@ -1853,6 +1855,21 @@ function Storefront() {
     }
   }
 
+  async function handleRevokeOwnAdminAccess() {
+    if (!user || !isAdmin || adminRevokeBusy) return
+    if (!window.confirm('¿Querés quitar tu propio acceso de administración? Se cerrará el panel y la página se actualizará.')) return
+    setAdminRevokeBusy(true)
+    setAdminError('')
+    try {
+      await revokeOwnAdminAccess(user)
+      window.location.reload()
+    } catch (error) {
+      console.error('No se pudo quitar el acceso propio de administración.', error)
+      setAdminError(error instanceof Error ? error.message : 'No se pudo quitar el acceso de administración.')
+      setAdminRevokeBusy(false)
+    }
+  }
+
   async function openAdminPanel() {
     setAdminLoading(true)
     setAdminError('')
@@ -2728,6 +2745,20 @@ function Storefront() {
                   </div>
                   <p>La persona debe haberse registrado y verificar su dirección de email. No se crean cuentas desde este panel.</p>
                 </form>
+                <section className="admin-self-revoke" aria-labelledby="admin-self-revoke-title">
+                  <div>
+                    <h3 id="admin-self-revoke-title">Quitar mi acceso de administrador</h3>
+                    <p>Tu cuenta dejará de tener permisos para administrar pedidos y productos. La página se actualizará al confirmar.</p>
+                  </div>
+                  <button
+                    className="admin-self-revoke-button"
+                    type="button"
+                    onClick={() => void handleRevokeOwnAdminAccess()}
+                    disabled={adminRevokeBusy}
+                  >
+                    {adminRevokeBusy ? 'Quitando acceso…' : 'Quitar mi acceso'}
+                  </button>
+                </section>
               </section>
             )}
           </section>

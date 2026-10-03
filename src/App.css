@@ -5564,6 +5564,56 @@ main {
   line-height: 1.6;
 }
 
+.admin-self-revoke {
+  max-width: 620px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 18px;
+  padding: 18px 20px;
+  border: 1px solid #efd9d5;
+  border-radius: 4px;
+  background: #fff8f6;
+}
+
+.admin-self-revoke h3 {
+  margin: 0;
+  color: #684a4b;
+  font-family: var(--font-heading);
+  font-size: 13px;
+}
+
+.admin-self-revoke p {
+  margin: 6px 0 0;
+  color: #887a7a;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.admin-self-revoke-button {
+  min-height: 40px;
+  flex: 0 0 auto;
+  padding: 8px 13px;
+  border: 1px solid #dbb6b1;
+  border-radius: 4px;
+  background: #fff;
+  color: #905b58;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.admin-self-revoke-button:hover:not(:disabled) {
+  background: #fff0ed;
+}
+
+.admin-self-revoke-button:disabled {
+  cursor: wait;
+  opacity: .6;
+}
+
 @media (max-width: 760px) {
   .category-discovery {
     padding-top: 36px;
@@ -5617,6 +5667,16 @@ main {
   }
 
   .admin-access-controls .button {
+    width: 100%;
+  }
+
+  .admin-self-revoke {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 16px;
+  }
+
+  .admin-self-revoke-button {
     width: 100%;
   }
 }

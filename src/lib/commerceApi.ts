@@ -338,6 +338,10 @@ export function grantAdminAccess(user: User, email: string): Promise<{ message: 
   })
 }
 
+export function revokeOwnAdminAccess(user: User): Promise<{ message: string }> {
+  return apiRequest(user, '/api/admin/self-revoke', { method: 'POST' })
+}
+
 async function apiRequest<T>(
   user: User,
   endpoint: string,

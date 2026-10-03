@@ -68,6 +68,16 @@ function isBootstrapAdmin(email?: string | null, emailVerified?: boolean): boole
     .some((value) => value.trim().toLocaleLowerCase('en-US') === normalizedEmail)
 }
 
+async function hasAdminAccess(
+  uid: string,
+  email?: string | null,
+  emailVerified?: boolean,
+): Promise<boolean> {
+  const admin = await firestore.doc(`admins/${uid}`).get()
+  if (admin.exists) return admin.get('active') === true
+  return isBootstrapAdmin(email, emailVerified)
+}
+
 const app = express()
 app.disable('x-powered-by')
 app.set('trust proxy', 1)
@@ -167,11 +177,11 @@ async function requireAdmin(request: Request, _response: Response, next: NextFun
     return
   }
   try {
-    const admin = await firestore.doc(`admins/${uid}`).get()
-    if (
-      (!admin.exists || admin.get('active') !== true) &&
-      !isBootstrapAdmin(request.authenticatedUser?.email, request.authenticatedUser?.email_verified)
-    ) {
+    if (!await hasAdminAccess(
+      uid,
+      request.authenticatedUser?.email,
+      request.authenticatedUser?.email_verified,
+    )) {
       next(new ApiError('Esta cuenta no tiene permisos de administración.', 403))
       return
     }
@@ -975,23 +985,61 @@ app.get(
       const uid = request.authenticatedUser?.uid
       if (!uid) throw new ApiError('Iniciá sesión para consultar este permiso.', 401)
       const adminRef = firestore.doc(`admins/${uid}`)
-      const admin = await adminRef.get()
       const bootstrapAdmin = isBootstrapAdmin(
         request.authenticatedUser?.email,
         request.authenticatedUser?.email_verified,
       )
-      if (bootstrapAdmin && (!admin.exists || admin.get('active') !== true)) {
-        await adminRef.set({
+      const isAdmin = await firestore.runTransaction(async (transaction) => {
+        const admin = await transaction.get(adminRef)
+        if (admin.exists) return admin.get('active') === true
+        if (!bootstrapAdmin) return false
+        transaction.create(adminRef, {
           email: request.authenticatedUser?.email,
           active: true,
           grantedBy: 'environment-bootstrap',
           grantedAt: FieldValue.serverTimestamp(),
-        }, { merge: true })
-      }
-      response.json({
-        isAdmin: (admin.exists && admin.get('active') === true) ||
-          bootstrapAdmin,
+        })
+        return true
       })
+      response.json({
+        isAdmin,
+      })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
+
+app.post(
+  '/api/admin/self-revoke',
+  authenticatedActionLimiter,
+  requireFirebaseServices,
+  requireUser,
+  async (request, response, next) => {
+    try {
+      const uid = request.authenticatedUser?.uid
+      if (!uid) throw new ApiError('Iniciá sesión para quitar tu acceso de administración.', 401)
+      const adminRef = firestore.doc(`admins/${uid}`)
+      const bootstrapAdmin = isBootstrapAdmin(
+        request.authenticatedUser?.email,
+        request.authenticatedUser?.email_verified,
+      )
+      await firestore.runTransaction(async (transaction) => {
+        const admin = await transaction.get(adminRef)
+        const hasAccess = admin.exists
+          ? admin.get('active') === true
+          : bootstrapAdmin
+        if (!hasAccess) throw new ApiError('Esta cuenta no tiene permisos de administración.', 403)
+        transaction.set(adminRef, {
+          email: request.authenticatedUser?.email ?? '',
+          active: false,
+          revokedBy: uid,
+          revokedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true })
+      })
+
+      response.json({ message: 'Se quitó tu acceso de administración.' })
     } catch (error) {
       next(error)
     }
@@ -2051,12 +2099,11 @@ async function getOrderMessageAccess(request: Request, orderId: string) {
   if (!uid) throw new ApiError('Iniciá sesión para consultar los mensajes.', 401)
   const orderSnapshot = await firestore.doc(`orders/${orderId}`).get()
   if (!orderSnapshot.exists) throw new ApiError('No encontramos ese pedido.', 404)
-  const adminSnapshot = await firestore.doc(`admins/${uid}`).get()
-  const isAdmin = (adminSnapshot.exists && adminSnapshot.get('active') === true) ||
-    isBootstrapAdmin(
-      request.authenticatedUser?.email,
-      request.authenticatedUser?.email_verified,
-    )
+  const isAdmin = await hasAdminAccess(
+    uid,
+    request.authenticatedUser?.email,
+    request.authenticatedUser?.email_verified,
+  )
   if (!isAdmin && orderSnapshot.get('userId') !== uid) {
     throw new ApiError('No encontramos ese pedido.', 404)
   }
