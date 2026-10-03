@@ -48,6 +48,7 @@ export type CustomerOrderStatus = {
   id: string
   paymentStatus: string
   status: string
+  canCancel: boolean
   subtotal: number
   shippingCost: number
   total: number
@@ -112,6 +113,7 @@ function isCustomerOrderStatus(value: unknown): value is CustomerOrderStatus {
     !('id' in value) || typeof value.id !== 'string' ||
     !('paymentStatus' in value) || typeof value.paymentStatus !== 'string' ||
     !('status' in value) || typeof value.status !== 'string' ||
+    !('canCancel' in value) || typeof value.canCancel !== 'boolean' ||
     !('subtotal' in value) || typeof value.subtotal !== 'number' || !Number.isFinite(value.subtotal) ||
     !('shippingCost' in value) || typeof value.shippingCost !== 'number' || !Number.isFinite(value.shippingCost) ||
     !('total' in value) || typeof value.total !== 'number' || !Number.isFinite(value.total) ||
@@ -191,6 +193,12 @@ export async function loadCustomerOrder(user: User, orderId: string): Promise<Cu
     throw new Error('El servidor devolvió el detalle de compra en un formato no válido.')
   }
   return result.order
+}
+
+export function cancelCustomerOrder(user: User, orderId: string): Promise<{ message: string }> {
+  return apiRequest(user, `/api/orders/${encodeURIComponent(orderId)}/cancel`, {
+    method: 'POST',
+  })
 }
 
 export type AdminOrder = {

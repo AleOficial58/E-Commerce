@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { User } from 'firebase/auth'
 import { loadOrderMessages, sendOrderMessage, type OrderMessage } from '../lib/commerceApi'
 
@@ -15,6 +15,8 @@ export function OrderMessages({ user, orderId, isAdmin = false, initialMessage =
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
+  const listRef = useRef<HTMLDivElement>(null)
+  const shouldFollowMessages = useRef(true)
 
   useEffect(() => {
     let active = true
@@ -41,15 +43,22 @@ export function OrderMessages({ user, orderId, isAdmin = false, initialMessage =
     }
   }, [orderId, user])
 
+  useEffect(() => {
+    if (shouldFollowMessages.current && listRef.current) {
+      listRef.current.scrollTop = listRef.current.scrollHeight
+    }
+  }, [messages])
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const body = draft.trim()
     if (!body || sending) return
     setSending(true)
+    shouldFollowMessages.current = true
     setError('')
     try {
       await sendOrderMessage(user, orderId, body)
-      setDraft('')
+      setDraft((current) => current === body ? '' : current)
       setMessages(await loadOrderMessages(user, orderId))
     } catch (sendError) {
       console.error('No se pudo enviar un mensaje del pedido.', sendError)
@@ -63,12 +72,22 @@ export function OrderMessages({ user, orderId, isAdmin = false, initialMessage =
     <section id={`order-messages-${orderId}`} className={`order-page-card order-messages ${isAdmin ? 'is-admin-messages' : ''}`}>
       <div className="order-messages-heading">
         <div>
-          <h2>Mensajes con el vendedor</h2>
+          <h2>Chat con el equipo de Lúmina</h2>
           <p>Escribile al equipo de Lúmina sobre esta compra.</p>
         </div>
-        <span aria-hidden="true">✳</span>
+        <span className="order-chat-presence"><i aria-hidden="true" /> Equipo Lúmina</span>
       </div>
-      <div className="order-message-list" aria-live="polite">
+      <div
+        ref={listRef}
+        className="order-message-list"
+        aria-label="Conversación de esta compra"
+        aria-live="polite"
+        onScroll={(event) => {
+          const element = event.currentTarget
+          shouldFollowMessages.current =
+            element.scrollHeight - element.scrollTop - element.clientHeight < 48
+        }}
+      >
         {loading ? (
           <p className="order-loading">Cargando mensajes…</p>
         ) : messages.length ? (
@@ -78,7 +97,7 @@ export function OrderMessages({ user, orderId, isAdmin = false, initialMessage =
               key={message.id}
             >
               <div>
-                <strong>{message.authorName}</strong>
+                <strong>{message.authorRole === 'admin' ? 'Equipo Lúmina' : message.authorName}</strong>
                 {message.createdAt && (
                   <time dateTime={message.createdAt}>
                     {new Intl.DateTimeFormat('es-AR', {
@@ -114,9 +133,9 @@ export function OrderMessages({ user, orderId, isAdmin = false, initialMessage =
           required
         />
         <div>
-          <small>Máximo 2000 caracteres</small>
+          <small>{draft.length}/2000 · Respondemos por este chat</small>
           <button type="submit" disabled={sending || !draft.trim()}>
-            {sending ? 'Enviando…' : 'Enviar mensaje'}
+            {sending ? 'Enviando…' : 'Enviar'}
           </button>
         </div>
       </form>

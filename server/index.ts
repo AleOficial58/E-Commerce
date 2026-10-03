@@ -460,6 +460,36 @@ async function getMercadoPagoPayment(paymentId: string): Promise<MercadoPagoPaym
   return payment as MercadoPagoPayment
 }
 
+async function refundMercadoPagoPayment(paymentId: string, orderId: string) {
+  const accessToken = getMercadoPagoAccessToken()
+  let response: globalThis.Response
+  try {
+    response = await fetch(
+      `https://api.mercadopago.com/v1/payments/${encodeURIComponent(paymentId)}/refunds`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + accessToken,
+          'Content-Type': 'application/json',
+          'X-Idempotency-Key': `cancel-${createHash('sha256').update(orderId).digest('hex').slice(0, 56)}`,
+        },
+        body: JSON.stringify({}),
+        signal: AbortSignal.timeout(10_000),
+      },
+    )
+  } catch {
+    throw new ApiError('No pudimos confirmar el reembolso. La solicitud quedó pendiente y podés volver a intentar sin duplicarlo.', 502)
+  }
+  if (!response.ok) {
+    console.error('Mercado Pago rechazó la solicitud de reembolso.', {
+      orderId,
+      paymentId,
+      status: response.status,
+    })
+    throw new ApiError('Mercado Pago no pudo procesar el reembolso. El pedido sigue protegido y podés volver a intentar.', 502)
+  }
+}
+
 async function findMercadoPagoPaymentId(orderId: string): Promise<string | null> {
   const accessToken = getMercadoPagoAccessToken()
   const url = new URL('https://api.mercadopago.com/v1/payments/search')
@@ -550,7 +580,9 @@ async function settleMercadoPagoPayment(payment: MercadoPagoPayment) {
     throw new ApiError('El pago no está asociado a un pedido válido.', 400)
   }
   const orderRef = firestore.doc(`orders/${orderId}`)
+  let cancellationRefundPaymentId: string | null = null
   await firestore.runTransaction(async (transaction) => {
+    cancellationRefundPaymentId = null
     const orderSnapshot = await transaction.get(orderRef)
     if (!orderSnapshot.exists) throw new ApiError('No encontramos el pedido asociado al pago.', 404)
     const order = orderSnapshot.data() ?? {}
@@ -596,7 +628,27 @@ async function settleMercadoPagoPayment(payment: MercadoPagoPayment) {
 
     const paymentStatus = typeof payment.status === 'string' ? payment.status : 'unknown'
     if (paymentStatus === 'approved') {
-      if (order.paymentStatus === 'approved') return
+      if (order.status === 'cancelled' && order.paymentStatus === 'cancelled') {
+        cancellationRefundPaymentId = String(payment.id)
+        transaction.update(orderRef, {
+          paymentStatus: 'approved',
+          paymentId: String(payment.id),
+          status: 'cancellation_refund_pending',
+          statusHistory: FieldValue.arrayUnion({
+            status: 'cancellation_refund_pending',
+            detail: 'El pago se acreditó después de cancelar; se solicitó su reembolso.',
+            at: Timestamp.now(),
+          }),
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+        return
+      }
+      if (order.paymentStatus === 'approved') {
+        if (order.status === 'cancellation_refund_pending') {
+          cancellationRefundPaymentId = String(payment.id)
+        }
+        return
+      }
       const orderItems = Array.isArray(order.items) ? order.items : []
       const productEntries = orderItems.flatMap((item) =>
         typeof item === 'object' && item !== null &&
@@ -681,11 +733,50 @@ async function settleMercadoPagoPayment(payment: MercadoPagoPayment) {
     if (['rejected', 'cancelled', 'refunded', 'charged_back'].includes(paymentStatus)) {
       if (order.paymentStatus === 'approved') {
         if (paymentStatus === 'refunded' || paymentStatus === 'charged_back') {
-          transaction.update(orderRef, {
-            paymentStatus,
-            paymentId: String(payment.id),
-            updatedAt: FieldValue.serverTimestamp(),
-          })
+          if (paymentStatus === 'refunded' && order.status === 'cancellation_refund_pending') {
+            const orderItems = Array.isArray(order.items) ? order.items : []
+            const productEntries = orderItems.flatMap((item) =>
+              typeof item === 'object' && item !== null &&
+              'id' in item && typeof item.id === 'string' &&
+              'quantity' in item && typeof item.quantity === 'number' &&
+              Number.isInteger(item.quantity) && item.quantity > 0
+                ? [{ item, reference: firestore.doc(`products/${item.id}`) }]
+                : [],
+            )
+            const productSnapshots = order.inventoryRestored === true
+              ? []
+              : await Promise.all(productEntries.map(({ reference }) => transaction.get(reference)))
+            if (order.inventoryRestored !== true) {
+              productEntries.forEach(({ item, reference }, index) => {
+                const stock = productSnapshots[index]?.get('stock')
+                if (typeof stock === 'number') {
+                  transaction.update(reference, {
+                    stock: stock + item.quantity,
+                    updatedAt: FieldValue.serverTimestamp(),
+                  })
+                }
+              })
+            }
+            transaction.update(orderRef, {
+              paymentStatus,
+              paymentId: String(payment.id),
+              status: 'cancelled',
+              inventoryHeld: false,
+              inventoryRestored: true,
+              statusHistory: FieldValue.arrayUnion({
+                status: 'cancelled',
+                detail: 'Reembolso confirmado por Mercado Pago.',
+                at: Timestamp.now(),
+              }),
+              updatedAt: FieldValue.serverTimestamp(),
+            })
+          } else {
+            transaction.update(orderRef, {
+              paymentStatus,
+              paymentId: String(payment.id),
+              updatedAt: FieldValue.serverTimestamp(),
+            })
+          }
         }
         return
       }
@@ -719,6 +810,17 @@ async function settleMercadoPagoPayment(payment: MercadoPagoPayment) {
       })
     }
   })
+  if (cancellationRefundPaymentId) {
+    await refundMercadoPagoPayment(cancellationRefundPaymentId, orderId)
+    const refreshedPayment = await getMercadoPagoPayment(cancellationRefundPaymentId)
+    if (
+      String(refreshedPayment.id) === cancellationRefundPaymentId &&
+      refreshedPayment.external_reference === orderId &&
+      refreshedPayment.status === 'refunded'
+    ) {
+      await settleMercadoPagoPayment(refreshedPayment)
+    }
+  }
 }
 
 function requireEmailConfiguration(_request: Request, _response: Response, next: NextFunction) {
@@ -1311,6 +1413,135 @@ app.get(
   },
 )
 
+app.post(
+  '/api/orders/:orderId/cancel',
+  authenticatedActionLimiter,
+  requireFirebaseServices,
+  requireUser,
+  async (request, response, next) => {
+    try {
+      const uid = request.authenticatedUser?.uid
+      const orderIdParam = request.params.orderId
+      const orderId = typeof orderIdParam === 'string' ? orderIdParam : ''
+      if (!uid) throw new ApiError('Iniciá sesión para cancelar el pedido.', 401)
+      if (!/^[A-Za-z0-9_-]{1,150}$/.test(orderId)) throw new ApiError('El pedido no es válido.', 400)
+
+      const orderRef = firestore.doc(`orders/${orderId}`)
+      const cancellation = await firestore.runTransaction(async (transaction) => {
+        const orderSnapshot = await transaction.get(orderRef)
+        if (!orderSnapshot.exists || orderSnapshot.get('userId') !== uid) {
+          throw new ApiError('No encontramos ese pedido.', 404)
+        }
+        const order = orderSnapshot.data() ?? {}
+        if (order.status === 'cancelled' || order.paymentStatus === 'refunded') {
+          return { result: 'cancelled' as const, paymentId: '' }
+        }
+        if (order.paymentStatus !== 'approved' && order.paymentStatus !== 'pending') {
+          throw new ApiError('Este pedido ya no se puede cancelar desde la tienda.', 409)
+        }
+        if (order.paymentStatus === 'pending' && order.status !== 'pending_payment') {
+          throw new ApiError('Este pedido ya no se puede cancelar desde la tienda.', 409)
+        }
+        const dispatchedStatuses = ['shipped', 'delivered']
+        const dispatchedStages = [
+          'international_transit',
+          'customs',
+          'in_argentina',
+          'local_transit',
+          'out_for_delivery',
+          'delivered',
+        ]
+        if (
+          dispatchedStatuses.includes(String(order.status)) ||
+          dispatchedStages.includes(String(order.shipmentStage))
+        ) {
+          throw new ApiError('No se puede cancelar porque el pedido ya fue despachado.', 409)
+        }
+
+        if (order.paymentStatus === 'pending') {
+          const orderItems = Array.isArray(order.items) ? order.items : []
+          const productEntries = orderItems.flatMap((item) =>
+            typeof item === 'object' && item !== null &&
+            'id' in item && typeof item.id === 'string' &&
+            'quantity' in item && typeof item.quantity === 'number' &&
+            Number.isInteger(item.quantity) && item.quantity > 0
+              ? [{ item, reference: firestore.doc(`products/${item.id}`) }]
+              : [],
+          )
+          const productSnapshots = order.inventoryHeld === true
+            ? await Promise.all(productEntries.map(({ reference }) => transaction.get(reference)))
+            : []
+          if (order.inventoryHeld === true) {
+            productEntries.forEach(({ item, reference }, index) => {
+              const stock = productSnapshots[index]?.get('stock')
+              if (typeof stock === 'number') {
+                transaction.update(reference, {
+                  stock: stock + item.quantity,
+                  updatedAt: FieldValue.serverTimestamp(),
+                })
+              }
+            })
+          }
+          transaction.update(orderRef, {
+            paymentStatus: 'cancelled',
+            status: 'cancelled',
+            inventoryHeld: false,
+            inventoryRestored: true,
+            statusHistory: FieldValue.arrayUnion({
+              status: 'cancelled',
+              detail: 'Cancelado por el cliente antes de acreditar el pago.',
+              at: Timestamp.now(),
+            }),
+            updatedAt: FieldValue.serverTimestamp(),
+          })
+          return { result: 'cancelled' as const, paymentId: '' }
+        }
+
+        if (order.status !== 'cancellation_refund_pending') {
+          transaction.update(orderRef, {
+            status: 'cancellation_refund_pending',
+            statusHistory: FieldValue.arrayUnion({
+              status: 'cancellation_refund_pending',
+              detail: 'Solicitud de cancelación y reembolso en proceso.',
+              at: Timestamp.now(),
+            }),
+            updatedAt: FieldValue.serverTimestamp(),
+          })
+        }
+        const paymentId = typeof order.paymentId === 'string' ? order.paymentId : ''
+        if (!/^\d{1,30}$/.test(paymentId)) {
+          throw new ApiError('No encontramos el pago de Mercado Pago asociado para iniciar el reembolso.', 409)
+        }
+        return { result: 'refund' as const, paymentId }
+      })
+
+      if (cancellation.result === 'cancelled') {
+        response.status(200).json({ message: 'La compra fue cancelada.' })
+        return
+      }
+
+      await refundMercadoPagoPayment(cancellation.paymentId, orderId)
+      const payment = await getMercadoPagoPayment(cancellation.paymentId)
+      if (
+        String(payment.id) !== cancellation.paymentId ||
+        payment.external_reference !== orderId
+      ) {
+        throw new ApiError('No pudimos validar el reembolso con Mercado Pago. La solicitud quedó pendiente para volver a verificar.', 502)
+      }
+      await settleMercadoPagoPayment(payment)
+      const refreshedOrder = await orderRef.get()
+      const refunded = refreshedOrder.get('paymentStatus') === 'refunded'
+      response.status(refunded ? 200 : 202).json({
+        message: refunded
+          ? 'La compra fue cancelada y Mercado Pago confirmó el reembolso.'
+          : 'La solicitud de reembolso está en proceso. El pedido no se despachará mientras se confirma.',
+      })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
+
 app.get(
   '/api/orders/:orderId',
   requireFirebaseServices,
@@ -1366,7 +1597,13 @@ app.get(
               !('status' in event) || typeof event.status !== 'string' ||
               !('at' in event) || !(event.at instanceof Timestamp)
             ) return []
-            return [{ status: event.status, at: event.at.toDate().toISOString() }]
+            return [{
+              status: event.status,
+              at: event.at.toDate().toISOString(),
+              ...('detail' in event && typeof event.detail === 'string'
+                ? { detail: event.detail }
+                : {}),
+            }]
           })
         : []
       const shipping = orderData.shipping
@@ -1398,6 +1635,13 @@ app.get(
           id: order.id,
           paymentStatus: orderData.paymentStatus,
           status: orderData.status,
+          canCancel: (
+            orderData.paymentStatus === 'approved' ||
+            (orderData.paymentStatus === 'pending' && orderData.status === 'pending_payment')
+          ) &&
+            !['shipped', 'delivered', 'cancelled', 'cancellation_refund_pending'].includes(orderData.status) &&
+            !['international_transit', 'customs', 'in_argentina', 'local_transit', 'out_for_delivery', 'delivered']
+              .includes(String(orderData.shipmentStage)),
           subtotal: orderData.subtotal,
           shippingCost: orderData.shippingCost,
           total: orderData.total,
@@ -1780,7 +2024,21 @@ app.patch(
         )
       }
       if (historyEvents.length > 0) updates.statusHistory = FieldValue.arrayUnion(...historyEvents)
-      await orderRef.update(updates)
+      await firestore.runTransaction(async (transaction) => {
+        const latestOrder = await transaction.get(orderRef)
+        if (!latestOrder.exists) throw new ApiError('No encontramos ese pedido.', 404)
+        if (latestOrder.get('paymentStatus') !== 'approved') {
+          throw new ApiError('Solo se pueden gestionar pedidos con el pago acreditado.', 409)
+        }
+        if (
+          latestOrder.get('status') === 'cancellation_refund_pending' ||
+          latestOrder.get('status') === 'cancelled' ||
+          latestOrder.get('paymentStatus') === 'refunded'
+        ) {
+          throw new ApiError('No se puede despachar un pedido que está siendo cancelado o ya fue cancelado.', 409)
+        }
+        transaction.update(orderRef, updates)
+      })
       response.json({ message: 'Se actualizó el estado del pedido.' })
     } catch (error) {
       next(error)

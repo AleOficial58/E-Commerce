@@ -16,6 +16,7 @@ type Props = {
   backLabel?: string
   detailMode?: boolean
   money: Intl.NumberFormat
+  onCancel?: () => Promise<{ message: string }>
 }
 
 const localShipmentSteps = [
@@ -45,6 +46,8 @@ const genericShipmentSteps = [
 ]
 
 function getStatusTitle(status: PaymentReturnStatus, order: CustomerOrderStatus | null): string {
+  if (order?.status === 'cancellation_refund_pending') return 'Reembolso en proceso'
+  if (order?.status === 'cancelled' || order?.paymentStatus === 'refunded') return 'Compra cancelada'
   if (status === 'checking') return 'Estamos verificando tu compra'
   if (status === 'error') return 'No pudimos actualizar el estado'
   if (status === 'failed') return 'El pago no se completó'
@@ -57,6 +60,12 @@ function getStatusTitle(status: PaymentReturnStatus, order: CustomerOrderStatus 
 }
 
 function getStatusMessage(status: PaymentReturnStatus, order: CustomerOrderStatus | null, message: string): string {
+  if (order?.status === 'cancellation_refund_pending') {
+    return 'Solicitamos el reembolso a Mercado Pago. No se despachará el pedido mientras se confirma.'
+  }
+  if (order?.status === 'cancelled' || order?.paymentStatus === 'refunded') {
+    return 'La compra fue cancelada. Si el pago estaba acreditado, Mercado Pago confirmó el reembolso.'
+  }
   if (status === 'checking') return 'Estamos consultando el estado confirmado por Mercado Pago.'
   if (status === 'error') return message || 'No pudimos consultar tu pedido. Podés volver a intentarlo.'
   if (status === 'failed') return 'Mercado Pago no confirmó el pago. El pedido no avanzará hasta que se complete.'
@@ -79,8 +88,12 @@ export function OrderStatusPage({
   backLabel = 'Volver a la tienda',
   detailMode = false,
   money,
+  onCancel,
 }: Props) {
   const [messagePrompt, setMessagePrompt] = useState('')
+  const [cancelLoading, setCancelLoading] = useState(false)
+  const [cancelError, setCancelError] = useState('')
+  const [cancelMessage, setCancelMessage] = useState('')
   const fulfillmentSteps = order?.shipmentType === 'international'
     ? internationalShipmentSteps
     : order?.shipmentType === 'local'
@@ -97,8 +110,12 @@ export function OrderStatusPage({
     )
     return fulfillmentSteps.findIndex((step) => step.status === stage)
   })()
-  const paymentLabel = order?.paymentStatus === 'approved'
-    ? 'Pago acreditado'
+  const paymentLabel = order?.paymentStatus === 'refunded'
+    ? 'Reembolsado'
+    : order?.paymentStatus === 'cancelled' || order?.status === 'cancelled'
+      ? 'Cancelado'
+      : order?.paymentStatus === 'approved'
+        ? 'Pago acreditado'
     : status === 'failed'
       ? 'Pago no completado'
       : 'Esperando confirmación'
@@ -166,7 +183,7 @@ export function OrderStatusPage({
                 </div>
               </div>
 
-              {status === 'approved' && (
+              {status === 'approved' && order?.paymentStatus === 'approved' && (
                 <>
                   <section className="order-delivery-estimate" aria-label="Estimación de entrega">
                     <span className="eyebrow section-eyebrow">ESTIMACIÓN DE ENTREGA</span>
@@ -222,6 +239,14 @@ export function OrderStatusPage({
 
               {status === 'review' && (
                 <div className="order-status-note">Te avisaremos cuando el pedido esté listo para prepararse.</div>
+              )}
+              {order?.status === 'cancellation_refund_pending' && (
+                <div className="order-status-note" role="status">
+                  {cancelMessage || 'El pedido está bloqueado para despacho mientras Mercado Pago confirma el reembolso.'}
+                </div>
+              )}
+              {(order?.status === 'cancelled' || order?.paymentStatus === 'refunded') && (
+                <div className="order-status-note">La compra ya no avanzará en el proceso de envío.</div>
               )}
               {status === 'pending' && (
                 <div className="order-status-note">No vuelvas a pagar mientras Mercado Pago procesa la operación.</div>
@@ -292,7 +317,7 @@ export function OrderStatusPage({
             {detailMode && (
               <section className="order-page-card order-help" aria-labelledby="order-help-title">
                 <h2 id="order-help-title">Ayuda con la compra</h2>
-                <p>Elegí un tema y se abrirá un mensaje para el equipo de Lúmina. La solicitud no cambia automáticamente el pedido.</p>
+                <p>Escribinos por el chat si necesitás ayuda. Para cancelar antes del despacho, usá la opción de cancelación del detalle.</p>
                 <div className="order-help-actions">
                   {[
                     ['Necesito que llegue', 'Hola, necesito consultar si es posible recibir el pedido antes de la fecha estimada.'],
@@ -305,6 +330,13 @@ export function OrderStatusPage({
                       type="button"
                       key={label}
                       onClick={() => {
+                        if (
+                          label === 'Quiero cancelar mi compra' &&
+                          (order?.canCancel || order?.status === 'cancellation_refund_pending')
+                        ) {
+                          document.getElementById('order-cancel-area')?.scrollIntoView({ behavior: 'smooth' })
+                          return
+                        }
                         setMessagePrompt(prompt)
                         document.getElementById(`order-messages-${orderId}`)?.scrollIntoView({ behavior: 'smooth' })
                       }}
@@ -331,7 +363,7 @@ export function OrderStatusPage({
               <div><dt>Número de pedido</dt><dd>{order?.id ?? orderId}</dd></div>
               {formattedDate && <div><dt>Fecha</dt><dd>{formattedDate}</dd></div>}
               <div><dt>Estado del pago</dt><dd>{paymentLabel}</dd></div>
-              {order?.paymentStatus === 'approved' && (
+              {(order?.paymentStatus === 'approved' || order?.paymentStatus === 'refunded') && (
                 <div>
                   <dt>Medio de pago</dt>
                   <dd>
@@ -353,6 +385,61 @@ export function OrderStatusPage({
                 ? 'El avance se actualiza cuando Lúmina cambia el estado del pedido.'
                 : 'El estado del pedido se actualiza cuando recibimos la confirmación de Mercado Pago.'}
             </p>
+            {detailMode && order?.canCancel && onCancel && (
+              <div className="order-cancel-area" id="order-cancel-area">
+                <p>Podés cancelar antes de que el equipo despache el pedido. Si el pago ya fue acreditado, se solicitará el reembolso a Mercado Pago.</p>
+                <button
+                  className="order-cancel-button"
+                  type="button"
+                  disabled={cancelLoading}
+                  onClick={() => {
+                    if (!window.confirm('¿Querés cancelar esta compra? Si el pago ya fue aprobado, solicitaremos el reembolso a Mercado Pago.')) return
+                    setCancelLoading(true)
+                    setCancelError('')
+                    void onCancel()
+                      .then((result) => {
+                        setCancelMessage(result.message)
+                        onRefresh()
+                      })
+                      .catch((error: unknown) => {
+                        setCancelError(error instanceof Error ? error.message : 'No se pudo cancelar la compra.')
+                      })
+                      .finally(() => setCancelLoading(false))
+                  }}
+                >
+                  {cancelLoading ? 'Procesando cancelación…' : 'Cancelar compra'}
+                </button>
+              </div>
+            )}
+            {detailMode && order?.status === 'cancellation_refund_pending' && onCancel && (
+              <div className="order-cancel-area" id="order-cancel-area">
+                <p>El reembolso sigue pendiente. Podés volver a consultar la solicitud de forma segura.</p>
+                <button
+                  className="order-cancel-button"
+                  type="button"
+                  disabled={cancelLoading}
+                  onClick={() => {
+                    setCancelLoading(true)
+                    setCancelError('')
+                    void onCancel()
+                      .then((result) => {
+                        setCancelMessage(result.message)
+                        onRefresh()
+                      })
+                      .catch((error: unknown) => {
+                        setCancelError(error instanceof Error ? error.message : 'No se pudo consultar el reembolso.')
+                      })
+                      .finally(() => setCancelLoading(false))
+                  }}
+                >
+                  {cancelLoading ? 'Consultando…' : 'Consultar reembolso'}
+                </button>
+              </div>
+            )}
+            {cancelError && <p className="order-cancel-error" role="alert">{cancelError}</p>}
+            {cancelMessage && order?.status !== 'cancellation_refund_pending' && (
+              <p className="order-cancel-success" role="status">{cancelMessage}</p>
+            )}
             <button className="button button-dark profile-save-button" type="button" onClick={onBack}>
               {backLabel}
             </button>

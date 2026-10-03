@@ -15,6 +15,7 @@ import {
 import { products, type Product } from './data/products'
 import {
   checkAdminAccess,
+  cancelCustomerOrder,
   createCheckoutPreference,
   CommerceApiError,
   loadCustomerOrder,
@@ -130,7 +131,6 @@ const heroSlides = [
 ]
 
 const announcementMessages = [
-  'Mercado Pago sandbox · no se realizan cobros reales',
   'Reseñas habilitadas para compras verificadas',
   'Consultá el detalle y el total antes de continuar',
   'Tus opiniones ayudan a comprar con más información',
@@ -1984,6 +1984,11 @@ function Storefront() {
         backLabel="Volver a mis compras"
         detailMode
         money={money}
+        onCancel={async () => {
+          const result = await cancelCustomerOrder(user, selectedCustomerOrderId)
+          setCustomerOrdersRefresh((current) => current + 1)
+          return result
+        }}
       />
     )
   }
@@ -2081,11 +2086,11 @@ function Storefront() {
           </button>
           <button
             className="icon-button bag-button"
-            aria-label={`Abrir bolso, ${cartCount} productos`}
+            aria-label={cartCount ? `Abrir bolso, ${cartCount} productos` : 'Abrir bolso, vacío'}
             onClick={() => setCartOpen(true)}
           >
             <Icon name="bag" />
-            <span className="bag-count">{cartCount}</span>
+            {cartCount > 0 && <span className="bag-count">{cartCount}</span>}
           </button>
         </div>
       </header>

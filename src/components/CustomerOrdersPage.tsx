@@ -11,6 +11,8 @@ type Props = {
 }
 
 function getStatusLabel(order: CustomerOrderSummary): string {
+  if (order.status === 'cancellation_refund_pending') return 'Reembolso en proceso'
+  if (order.status === 'cancelled' || order.paymentStatus === 'refunded') return 'Compra cancelada'
   if (order.paymentStatus !== 'approved') {
     if (order.status === 'payment_review') return 'En revisión'
     if (order.status === 'payment_failed') return 'Pago no completado'
