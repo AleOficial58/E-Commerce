@@ -301,6 +301,10 @@ type MercadoPagoPayment = {
   currency_id?: string
   status?: string
   live_mode?: boolean
+  payment_type_id?: string
+  payment_method_id?: string
+  collector_id?: number | string
+  application_id?: number | string
 }
 
 function getMercadoPagoAccessToken(): string {
@@ -543,8 +547,19 @@ async function settleMercadoPagoPayment(payment: MercadoPagoPayment) {
     if (!paymentModeMatches) {
       console.warn('El modo del pago no coincide con el modo guardado en el pedido.', {
         orderId,
+        paymentId: String(payment.id),
+        preferenceId: typeof order.paymentPreferenceId === 'string'
+          ? order.paymentPreferenceId
+          : null,
         expectedMode: expectedPaymentMode ?? null,
         liveMode: payment.live_mode ?? null,
+        paymentStatus: payment.status ?? null,
+        paymentTypeId: payment.payment_type_id ?? null,
+        paymentMethodId: payment.payment_method_id ?? null,
+        collectorId: payment.collector_id ?? null,
+        applicationId: payment.application_id ?? null,
+        transactionAmount: payment.transaction_amount ?? null,
+        currencyId: payment.currency_id ?? null,
       })
       const modeMismatchMessage = expectedPaymentMode === 'sandbox'
         ? payment.live_mode === true
