@@ -38,6 +38,7 @@ import {
   type ReviewSummary,
 } from './lib/reviewsApi'
 import { AuthActionPage } from './components/AuthActionPage'
+import { CustomerOrdersPage } from './components/CustomerOrdersPage'
 import { OrderStatusPage } from './components/OrderStatusPage'
 import { OrderMessages } from './components/OrderMessages'
 import './App.css'
@@ -654,6 +655,7 @@ function Storefront() {
   })
   const [authOpen, setAuthOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
+  const [customerOrdersPageOpen, setCustomerOrdersPageOpen] = useState(false)
   const [customerOrders, setCustomerOrders] = useState<CustomerOrderSummary[]>([])
   const [customerOrdersLoading, setCustomerOrdersLoading] = useState(true)
   const [customerOrdersError, setCustomerOrdersError] = useState('')
@@ -701,9 +703,7 @@ function Storefront() {
   const knownAdminOrderIds = useRef<Set<string> | null>(null)
   const clearedPaymentOrderIds = useRef<Set<string>>(new Set())
   const hasBlockingOverlay = authOpen || accountOpen || cartOpen || checkoutOpen ||
-    profileEditorOpen || adminOpen || productDetailsProduct !== null ||
-    (Boolean(paymentReturnOrderId) && Boolean(user)) ||
-    (Boolean(selectedCustomerOrderId) && Boolean(user))
+    profileEditorOpen || adminOpen || productDetailsProduct !== null
 
   useEffect(() => {
     if (mobileSearchOpen) searchInputRef.current?.focus()
@@ -839,7 +839,7 @@ function Storefront() {
   }, [authLoading, paymentRefreshCount, paymentReturnOrderId, paymentReturnPaymentId, user])
 
   useEffect(() => {
-    if (!accountOpen || !user) return
+    if (!customerOrdersPageOpen || !user) return
 
     let active = true
     let timeout: number | undefined
@@ -867,7 +867,7 @@ function Storefront() {
       active = false
       if (timeout !== undefined) window.clearTimeout(timeout)
     }
-  }, [accountOpen, customerOrdersRefresh, user])
+  }, [customerOrdersPageOpen, customerOrdersRefresh, user])
 
   useEffect(() => {
     if (!selectedCustomerOrderId || !user) return
@@ -977,6 +977,10 @@ function Storefront() {
             setAdminOpen(false)
             if (!currentUser) {
               setProfileEditorOpen(false)
+              setCustomerOrdersPageOpen(false)
+              setSelectedCustomerOrderId('')
+              setSelectedCustomerOrder(null)
+              setCustomerOrders([])
               const guestStore = readGuestStore()
               setCustomerProfile(emptyCustomerProfile)
               setFavorites(guestStore.favorites)
@@ -1938,6 +1942,28 @@ function Storefront() {
       />
     )
   }
+  if (customerOrdersPageOpen && user) {
+    return (
+      <CustomerOrdersPage
+        orders={customerOrders}
+        loading={customerOrdersLoading}
+        error={customerOrdersError}
+        money={money}
+        onBack={() => setCustomerOrdersPageOpen(false)}
+        onRefresh={() => {
+          setCustomerOrdersLoading(true)
+          setCustomerOrdersError('')
+          setCustomerOrdersRefresh((current) => current + 1)
+        }}
+        onOpenOrder={(orderId) => {
+          setCustomerOrdersPageOpen(false)
+          setSelectedCustomerOrderId(orderId)
+          setSelectedCustomerOrderStatus('checking')
+          setSelectedCustomerOrderMessage('')
+        }}
+      />
+    )
+  }
   if (selectedCustomerOrderId && user) {
     return (
       <OrderStatusPage
@@ -1953,7 +1979,7 @@ function Storefront() {
         }}
         onBack={() => {
           setSelectedCustomerOrderId('')
-          setAccountOpen(true)
+          setCustomerOrdersPageOpen(true)
         }}
         backLabel="Volver a mis compras"
         detailMode
@@ -2415,107 +2441,23 @@ function Storefront() {
                 <Icon name="heart" size={19} /><span><strong>Mis favoritos</strong><small>{favoriteProducts.length} {favoriteProducts.length === 1 ? 'pieza guardada' : 'piezas guardadas'}</small></span>
               </div>
             </div>
-            <section className="account-orders" aria-labelledby="account-orders-title">
-              <div className="account-section-heading">
-                <h3 id="account-orders-title">Mis compras</h3>
-                <div className="account-orders-tools">
-                  {customerOrders.length > 0 && <span>{customerOrders.length}</span>}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCustomerOrdersLoading(true)
-                      setCustomerOrdersError('')
-                      setCustomerOrdersRefresh((current) => current + 1)
-                    }}
-                    disabled={customerOrdersLoading}
-                  >
-                    {customerOrdersLoading ? 'Actualizando…' : 'Actualizar'}
-                  </button>
-                </div>
-              </div>
-              {customerOrdersError ? (
-                <div className="account-orders-empty" role="alert">
-                  <p>{customerOrdersError}</p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCustomerOrdersLoading(true)
-                      setCustomerOrdersError('')
-                      setCustomerOrdersRefresh((current) => current + 1)
-                    }}
-                  >
-                    Volver a intentar
-                  </button>
-                </div>
-              ) : customerOrdersLoading && customerOrders.length === 0 ? (
-                <p className="account-orders-empty" role="status">Cargando tus compras…</p>
-              ) : customerOrders.length ? (
-                <div className="account-order-list">
-                  {customerOrders.map((order) => {
-                    const statusLabel = order.paymentStatus !== 'approved'
-                      ? order.status === 'payment_review'
-                        ? 'En revisión'
-                        : order.status === 'payment_failed'
-                          ? 'Pago no completado'
-                          : order.status === 'payment_expired'
-                            ? 'Pago vencido'
-                            : 'Pago pendiente'
-                      : order.status === 'preparing'
-                        ? 'En preparación'
-                        : order.status === 'shipped'
-                          ? 'Enviado'
-                          : order.status === 'delivered'
-                            ? 'Entregado'
-                            : 'Compra confirmada'
-                    return (
-                      <article className="account-order-item" key={order.id}>
-                        <button
-                          className="account-order-open"
-                          type="button"
-                          onClick={() => {
-                            setAccountOpen(false)
-                            setSelectedCustomerOrderId(order.id)
-                            setSelectedCustomerOrderStatus('checking')
-                            setSelectedCustomerOrderMessage('')
-                          }}
-                        >
-                          <div className="account-order-heading">
-                            <strong>Pedido {order.id.slice(0, 8).toLocaleUpperCase('es-AR')}</strong>
-                            <span className={`account-order-status status-${order.status}`}>{statusLabel}</span>
-                          </div>
-                          <div className="account-order-preview">
-                            <div className="account-order-thumbnails">
-                              {order.items.slice(0, 3).map((item, index) => (
-                                <img src={item.image} alt="" key={`${item.name}-${index}`} />
-                              ))}
-                              {order.items.length > 3 && <span>+{order.items.length - 3}</span>}
-                            </div>
-                            <div className="account-order-copy">
-                              <p>
-                                {order.createdAt
-                                  ? new Intl.DateTimeFormat('es-AR', {
-                                      dateStyle: 'medium',
-                                      timeStyle: 'short',
-                                    }).format(new Date(order.createdAt))
-                                  : 'Fecha no disponible'}
-                              </p>
-                              <p>{order.items.map((item) => `${item.quantity} × ${item.name}`).join(', ')}</p>
-                              <strong className="account-order-total">{money.format(order.total)}</strong>
-                            </div>
-                            <Icon name="arrow" size={17} />
-                          </div>
-                        </button>
-                      </article>
-                    )
-                  })}
-                </div>
-              ) : (
-                <div className="account-orders-empty">
-                  <p>Todavía no tenés compras asociadas a esta cuenta.</p>
-                  <small>Cuando completes una compra, vas a poder consultar acá su pago y el avance del pedido.</small>
-                </div>
-              )}
-            </section>
+            <button
+              className="account-purchases-link"
+              type="button"
+              onClick={() => {
+                setAccountOpen(false)
+                setCustomerOrdersLoading(true)
+                setCustomerOrdersError('')
+                setCustomerOrdersPageOpen(true)
+              }}
+            >
+              <Icon name="box" size={19} />
+              <span>
+                <strong>Mis compras</strong>
+                <small>{customerOrders.length} {customerOrders.length === 1 ? 'pedido' : 'pedidos'}</small>
+              </span>
+              <Icon name="arrow" size={16} />
+            </button>
             <section className="account-favorites">
               <div className="account-section-heading">
                 <h3>Guardados para vos</h3>
