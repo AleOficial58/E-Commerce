@@ -146,6 +146,20 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /productReviews/{reviewId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /productReviewSummaries/{productId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /verifiedPurchases/{purchaseId} {
+      allow read, write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

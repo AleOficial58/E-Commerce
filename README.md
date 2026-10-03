@@ -28,6 +28,8 @@ La API de correo necesita además:
 
 **No compartas ni subas la clave privada JSON ni las credenciales SMTP.** La cuenta de servicio da acceso administrativo al proyecto; mantenela solo en `secrets/` local y configurala como secreto en el servidor al desplegar.
 
+Para habilitar el checkout sandbox en local, agregá en `.env.server` `MERCADO_PAGO_MODE=sandbox`, `MERCADO_PAGO_ACCESS_TOKEN=TEST-...` y `MERCADO_PAGO_WEBHOOK_SECRET=...`. El secreto debe ser el de la notificación configurada para el evento `payment`. No configures estas variables como `VITE_*`; no habilites `MERCADO_PAGO_ALLOW_PRODUCTION` en esta etapa.
+
 `npm run dev:full` inicia Vite y la API Express local; Vite reenvía `/api` al puerto `3001`. El endpoint `/api/health` permite ver si Firebase Admin y SMTP están configurados, sin exponer sus valores.
 
 En Firebase Console:
@@ -36,7 +38,7 @@ En Firebase Console:
 2. En **Authentication → Sign-in method**, habilitá **Email/Password**.
 3. En **Authentication → Settings → Authorized domains**, verificá que `localhost` esté permitido para desarrollo.
 4. Creá una base de **Cloud Firestore**.
-5. Publicá las reglas de [`firestore.rules`](./firestore.rules).
+5. Publicá las reglas e índices de Firestore con `firebase deploy --only firestore`; el proyecto usa [`firestore.rules`](./firestore.rules) y [`firestore.indexes.json`](./firestore.indexes.json).
 
 La configuración pública de Firebase que usa la aplicación no reemplaza las reglas de seguridad: aplicá siempre reglas en Firebase y restringí las claves desde la consola cuando corresponda. Las reglas incluidas dejan el catálogo legible, bloquean su escritura desde el cliente y limitan los perfiles a su propio usuario.
 
@@ -57,8 +59,10 @@ Para revisar el diseño localmente sin enviar correos ni cambiar contraseñas, a
 - Envío y reenvío de verificación de email, comprobación del estado y recuperación de contraseña.
 - Correos transaccionales de verificación/restablecimiento con diseño Lúmina, enviados desde la API con Firebase Admin y SMTP.
 - Perfil editable en `users/{userId}` en Firestore, con datos de contacto, domicilio y un indicador visual de completitud.
-- Checkout de demostración: dirección de entrega, resultado aprobado/rechazado sin datos de tarjeta, control de stock y pedido registrado en Firestore.
-- Panel de administración protegido para publicaciones, disponibilidad, stock, seguimiento de pedidos de prueba y asignación de rol Admin por email.
+- Checkout con Mercado Pago Checkout Pro en sandbox, reserva temporal de stock y pedidos pendientes guardados en Firestore.
+- Confirmación de pagos por webhook firmado y consultado contra la API de Mercado Pago; la pantalla de retorno nunca da por aprobado un pago por la URL.
+- Fichas con puntuación agregada y opiniones; solo pueden publicarlas cuentas verificadas con una compra aprobada del producto.
+- Panel de administración protegido para publicaciones, disponibilidad, stock, seguimiento de pedidos pagados y asignación de rol Admin por email.
 - Favoritos y bolso sincronizados en subcolecciones del usuario autenticado:
   - `users/{userId}/favorites/{productId}`
   - `users/{userId}/cart/{productId}`
@@ -67,13 +71,27 @@ Para revisar el diseño localmente sin enviar correos ni cambiar contraseñas, a
 
 El catálogo inicial de demostración está en `src/data/products.ts`; las publicaciones creadas desde Admin se guardan en Firestore y se combinan con ese catálogo. Las imágenes son URLs públicas HTTPS. Los cambios de favoritos, bolso, perfil, pedidos y publicaciones requieren las reglas de Firestore publicadas desde `firestore.rules`.
 
+Las opiniones se guardan en `productReviews` y sus promedios en `productReviewSummaries`. Los clientes solo pueden leerlas; la API valida la sesión, el email verificado y el registro privado `verifiedPurchases` creado al acreditar un pago antes de aceptar o editar una opinión. Publicá reglas e índices con `firebase deploy --only firestore` para habilitar la lectura pública, ordenar opiniones recientes y mantener bloqueadas las escrituras directas desde el navegador.
+
 La verificación se envía al registrarse; la app permite explorar y guardar mientras tanto y muestra el estado en **Mi cuenta**. Firebase Admin genera enlaces de acción de un solo uso y el servidor los envía en correos de marca mediante SMTP; las plantillas integradas de Firebase ya no se usan para estos dos flujos.
 
 ## Decisiones de arquitectura para esta etapa
 
 Firestore funciona como backend administrado para autenticación y datos privados del usuario. Se agregó una API Express pequeña porque Firebase Admin y el envío SMTP requieren credenciales privadas que no deben incluirse en React. La API valida tokens de Firebase para reenviar verificaciones, limita intentos, y da respuestas genéricas en el restablecimiento para no revelar si un email está registrado.
 
-Los pagos de este proyecto son **solo simulaciones**: no se piden ni guardan tarjetas y no se mueve dinero. La API verifica el stock y vuelve a calcular los importes usando el catálogo confiable antes de registrar una compra aprobada en `orders/{orderId}`. El panel consulta esos pedidos y permite actualizar su estado. Las publicaciones se guardan en `products/{productId}` y usan una URL HTTPS de imagen para evitar Storage.
+Los pagos se integran con **Mercado Pago Checkout Pro**, empezando en sandbox: la tienda no recibe ni guarda datos de tarjetas, y los pagos de prueba no mueven dinero real. La API vuelve a calcular los importes desde el catálogo confiable, reserva stock durante 30 minutos y crea el pedido pendiente. Solo un webhook con firma válida, confirmado además mediante la API de Mercado Pago, puede acreditar el pago y habilitar la gestión del pedido. Las reservas vencidas se liberan periódicamente. Las publicaciones se guardan en `products/{productId}` y usan una URL HTTPS de imagen para evitar Storage.
+
+### Probar pagos sin dinero real
+
+Mercado Pago ofrece un entorno de pruebas real (sandbox), no hace falta usar una tarjeta ni una cuenta con dinero real:
+
+1. Creá una aplicación de prueba en [Tus integraciones de Mercado Pago](https://www.mercadopago.com.ar/developers/panel/app) y usá su Access Token de prueba (`TEST-...`) junto con el secreto de firma de notificaciones. Configuralos solo como secretos del servidor.
+2. Creá un usuario comprador de prueba desde el panel de desarrolladores siguiendo la [guía oficial de usuarios de prueba](https://www.mercadopago.com.ar/developers/es/docs/checkout-pro/integration-test/test-users). Usá credenciales sandbox distintas de las de tu cuenta habitual.
+3. Configurá la URL de notificaciones `https://TU-SERVICIO.onrender.com/api/payments/mercadopago/webhook`, seleccionando el evento de pagos y el secreto de firma correspondiente.
+4. Iniciá sesión en la tienda con una cuenta de cliente Firebase cuyo email esté verificado, agregá un producto y continuá a Checkout Pro. En Mercado Pago autenticá el usuario comprador de prueba; para tarjetas, usá una [tarjeta de prueba y los datos de titular documentados oficialmente](https://www.mercadopago.com.ar/developers/es/docs/checkout-pro-preferences/integration-test/test-purchases).
+5. Hacé la prueba en una ventana incógnita, como recomienda Mercado Pago. El retorno del navegador no acredita el pedido: confirmá que el webhook actualizó el pedido y el stock desde el panel Admin. Después de la compra acreditada, esa cuenta podrá publicar o editar una única reseña por producto.
+
+Mientras no estén configurados el token y el secreto sandbox, el checkout devuelve un error explícito y no se genera ningún cobro. El modo productivo sigue bloqueado; no uses credenciales reales para estas pruebas.
 
 ### Habilitar y administrar el panel
 
@@ -85,9 +103,9 @@ Como alternativa, el primer documento puede cargarse manualmente:
 2. En Firebase Console, abrí **Authentication → Users** y copiá el UID de esa cuenta.
 3. Abrí **Firestore Database → Data**, creá la colección `admins` si todavía no existe y agregá un documento cuyo ID sea exactamente ese UID.
 4. En ese documento agregá el campo `active` de tipo booleano con valor `true`.
-5. Publicá las reglas nuevas de [`firestore.rules`](./firestore.rules). Reiniciá la sesión para que aparezca el botón **Admin**.
+5. Publicá las reglas de Firestore con `firebase deploy --only firestore`. Reiniciá la sesión para que aparezca el botón **Admin**.
 
-Desde **Admin → Accesos**, un administrador puede ingresar el email de otra cuenta existente y verificada para otorgarle el rol. La API verifica la cuenta con Firebase Authentication y escribe `admins/{uid}` usando Firebase Admin; los emails inexistentes, las cuentas sin verificar y las cuentas comunes no pueden usar este endpoint. Las reglas de Firestore siguen rechazando escrituras de clientes a `admins`. Mantené la cuenta de servicio del servidor privada. Los demás usuarios pueden ver productos y crear pedidos de prueba propios, pero no administrar publicaciones ni leer pedidos ajenos.
+Desde **Admin → Accesos**, un administrador puede ingresar el email de otra cuenta existente y verificada para otorgarle el rol. La API verifica la cuenta con Firebase Authentication y escribe `admins/{uid}` usando Firebase Admin; los emails inexistentes, las cuentas sin verificar y las cuentas comunes no pueden usar este endpoint. Las reglas de Firestore siguen rechazando escrituras de clientes a `admins`. Mantené la cuenta de servicio del servidor privada. Los demás usuarios pueden ver productos y crear pedidos propios, pero no administrar publicaciones ni leer pedidos ajenos.
 
 Los permisos de bootstrap configurados en `ADMIN_EMAILS` son administradores raíz: quitar un email de esa variable no desactiva un documento `admins/{uid}` que ya se haya creado para la cuenta. Para revocar un permiso otorgado desde el panel o Firebase Console, cambiá `active` a `false`; para revocar también un administrador de bootstrap, primero quitá su email de `ADMIN_EMAILS` y luego desactivá su documento.
 
@@ -97,17 +115,18 @@ El panel revisa pedidos nuevos mientras está abierto y muestra el cliente, la e
 
 ## Probar en Render (versión de prueba)
 
-El archivo [`render.yaml`](./render.yaml) define un único servicio web gratuito para pruebas. Render instala las dependencias, compila React y arranca Express; Express sirve `dist/` y la API `/api` desde el mismo dominio. La franja superior rota avisos del entorno de prueba y los pagos siguen siendo simulados: no se cobran ni almacenan tarjetas.
+El archivo [`render.yaml`](./render.yaml) define un único servicio web gratuito para pruebas. Render instala las dependencias, compila React y arranca Express; Express sirve `dist/` y la API `/api` desde el mismo dominio. El checkout permanece deshabilitado hasta configurar las credenciales sandbox de Mercado Pago.
 
 1. Subí este proyecto a un repositorio privado de GitHub y conectalo desde Render con **New → Blueprint**.
-2. Render va a pedir las variables Firebase marcadas como `sync: false`. Obtené las `VITE_FIREBASE_*` de la configuración de tu aplicación web en Firebase; `FIREBASE_PROJECT_ID` debe ser el ID del mismo proyecto. `ADMIN_EMAILS` es opcional si ya existe un documento Admin en Firestore; si no, completalo con el email verificado del primer administrador (separá varias cuentas con comas). Estos valores `VITE_*` son configuración pública de cliente y quedan incluidos en el frontend; nunca pongas allí credenciales privadas.
+2. Render va a pedir las variables Firebase y de Mercado Pago marcadas como `sync: false`. Obtené las `VITE_FIREBASE_*` de la configuración de tu aplicación web en Firebase; `FIREBASE_PROJECT_ID` debe ser el ID del mismo proyecto. `ADMIN_EMAILS` es opcional si ya existe un documento Admin en Firestore; si no, completalo con el email verificado del primer administrador (separá varias cuentas con comas). Estos valores `VITE_*` son configuración pública de cliente y quedan incluidos en el frontend; nunca pongas allí credenciales privadas.
 3. En **Environment → Secret Files**, agregá `lumina-service-account.json` con la clave de cuenta de servicio del proyecto Firebase. El blueprint ya apunta `GOOGLE_APPLICATION_CREDENTIALS` a `/etc/secrets/lumina-service-account.json`. Protegé ese archivo y no lo agregues al repositorio.
-4. Esperá a que termine el deploy y abrí la URL `onrender.com`. En Firebase Authentication, agregá ese dominio en **Authorized domains**. Firestore debe tener publicadas las reglas de [`firestore.rules`](./firestore.rules).
-5. Comprobá `https://TU-SERVICIO.onrender.com/api/health`. La API informa si Firebase Admin y el transporte de correo están configurados, sin revelar credenciales. Firebase Admin permite autenticación de servidor, administración y pedidos de demostración. El correo es opcional para navegar/probar el resto; sin un proveedor configurado no se enviarán correos de verificación ni recuperación.
+4. Esperá a que termine el deploy y abrí la URL `onrender.com`. En Firebase Authentication, agregá ese dominio en **Authorized domains**. Publicá las reglas e índices de [`firestore.rules`](./firestore.rules) y [`firestore.indexes.json`](./firestore.indexes.json) con `firebase deploy --only firestore`.
+5. En el panel de desarrolladores de Mercado Pago, creá una aplicación de prueba, copiá su **Access Token de prueba** (`TEST-...`) y configurá en Render `MERCADO_PAGO_ACCESS_TOKEN` y `MERCADO_PAGO_WEBHOOK_SECRET` como secretos. Dejá `MERCADO_PAGO_MODE=sandbox`. Configurá la URL de notificaciones como `https://TU-SERVICIO.onrender.com/api/payments/mercadopago/webhook` y el mismo secreto de firma en Render. Usá un usuario comprador de prueba para completar pagos; no uses credenciales ni tarjetas reales.
+6. Comprobá `https://TU-SERVICIO.onrender.com/api/health`. La API informa si Firebase Admin, correo y credenciales de pago están configurados, sin revelar secretos. El endpoint de pagos responde `503` hasta que estén configurados los secretos sandbox. El correo es opcional para navegar/probar el resto; sin un proveedor configurado no se enviarán correos de verificación ni recuperación.
 
 Para enviar correos desde Render, se puede usar la API HTTPS de Brevo: agregá `BREVO_API_KEY` con una clave API privada y `EMAIL_FROM` con un remitente verificado, por ejemplo `Lúmina <tienda@tudominio.com>`. Al estar configurada, la aplicación elige esta opción antes que SMTP. Guardá la clave solo en Environment de Render, nunca en `VITE_*` ni en Git. El endpoint de salud informa el transporte elegido (`emailTransport`), pero no envía un mensaje de prueba.
 
-La URL pública se detecta desde Render automáticamente. Si más adelante configurás `PUBLIC_APP_URL`, debe ser el origen HTTPS exacto del servicio. El plan gratuito puede suspender el servicio cuando no se usa y tardar en iniciar al volver a abrirlo. No uses este deploy para ventas reales.
+La URL pública se detecta desde Render automáticamente. Si más adelante configurás `PUBLIC_APP_URL`, debe ser el origen HTTPS exacto del servicio; Mercado Pago la usa para los retornos y el webhook. El plan gratuito puede suspender el servicio cuando no se usa y tardar en iniciar al volver a abrirlo. La aplicación mantiene bloqueado el modo productivo salvo habilitación explícita en el servidor; no uses este deploy para ventas reales.
 
 En desarrollo local se mantiene el proxy `/api` de Vite; `npm run dev:full` inicia Vite y Express en paralelo. No despliegues la clave de servicio ni credenciales SMTP en el frontend o en variables `VITE_*`.
 
@@ -124,7 +143,7 @@ npm run typecheck:api
 
 ## Próximos pasos
 
-1. Reemplazar el checkout simulado por un proveedor real solo cuando la tienda esté lista para cobrar, usando webhooks y validación desde el servidor.
+1. Completar pruebas de pagos con credenciales sandbox y usuarios de prueba antes de evaluar una habilitación productiva.
 2. Agregar historial de pedidos para cada cliente y notificaciones de estado.
 3. Mejorar el panel con filtros, métricas y carga de imágenes cuando exista una solución de almacenamiento aprobada.
 4. Implementar recomendaciones iniciales por categoría y popularidad.

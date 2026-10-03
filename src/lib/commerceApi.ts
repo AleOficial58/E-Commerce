@@ -15,13 +15,20 @@ export type CheckoutLine = {
   quantity: number
 }
 
-export type SimulatedOrderResult = {
-  approved: boolean
-  orderId?: string
-  subtotal?: number
-  shippingCost?: number
-  total?: number
-  message: string
+export type CheckoutPreference = {
+  orderId: string
+  checkoutUrl: string
+  total: number
+  expiresAt: string
+  paymentMode: 'sandbox' | 'production'
+}
+
+export type CustomerOrderStatus = {
+  id: string
+  paymentStatus: string
+  status: string
+  total: number
+  items: { id: string; quantity: number }[]
 }
 
 export type AdminOrder = {
@@ -45,6 +52,7 @@ export type AdminOrder = {
   total: number
   paymentStatus: string
   status: string
+  paymentMethod?: string
   createdAt?: { _seconds?: number } | null
 }
 
@@ -97,16 +105,19 @@ async function apiRequest<T>(
   return result as T
 }
 
-export function submitSimulatedOrder(
+export function createCheckoutPreference(
   user: User,
   items: CheckoutLine[],
   shipping: ShippingAddress,
-  outcome: 'approved' | 'declined',
-): Promise<SimulatedOrderResult> {
-  return apiRequest(user, '/api/orders', {
+): Promise<CheckoutPreference> {
+  return apiRequest(user, '/api/payments/mercadopago/preference', {
     method: 'POST',
-    body: { items, shipping, outcome },
+    body: { items, shipping },
   })
+}
+
+export function loadCustomerOrder(user: User, orderId: string): Promise<{ order: CustomerOrderStatus }> {
+  return apiRequest(user, `/api/orders/${encodeURIComponent(orderId)}`)
 }
 
 export async function loadAdminOrders(user: User): Promise<AdminOrder[]> {

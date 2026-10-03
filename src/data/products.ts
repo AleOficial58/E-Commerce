@@ -5,7 +5,7 @@ export type Product = {
   description: string
   price: number
   originalPrice?: number
-  rating: string
+  rating?: string
   badge?: string
   image: string
   imageTone: 'peach' | 'lavender' | 'butter' | 'mint'

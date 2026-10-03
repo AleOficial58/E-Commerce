@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { User } from 'firebase/auth'
 import { firebaseReady, getFirebaseServices } from './lib/firebase'
 import {
@@ -15,13 +15,21 @@ import {
 import { products, type Product } from './data/products'
 import {
   checkAdminAccess,
+  createCheckoutPreference,
   grantAdminAccess,
+  loadCustomerOrder,
   loadAdminOrders,
-  submitSimulatedOrder,
   updateAdminOrderStatus,
   type AdminOrder,
   type ShippingAddress,
 } from './lib/commerceApi'
+import {
+  loadProductReviews,
+  loadReviewSummaries,
+  saveProductReview,
+  type ProductReviewsResult,
+  type ReviewSummary,
+} from './lib/reviewsApi'
 import { AuthActionPage } from './components/AuthActionPage'
 import './App.css'
 
@@ -112,10 +120,10 @@ const heroSlides = [
 ]
 
 const announcementMessages = [
-  'Sitio de prueba · los pedidos no generan cobros reales',
-  'Nuevos detalles para encontrar tu próximo favorito',
-  'Guardá tus favoritos y armá tu bolso a tu ritmo',
-  'Envíos a todo el país con seguimiento en cada paso',
+  'Mercado Pago sandbox · no se realizan cobros reales',
+  'Reseñas habilitadas para compras verificadas',
+  'Consultá el detalle y el total antes de continuar',
+  'Tus opiniones ayudan a comprar con más información',
 ]
 
 function getErrorCode(error: unknown): string {
@@ -219,7 +227,6 @@ function readPublishedProduct(id: string, data: Record<string, unknown>): Produc
   ) {
     return null
   }
-  const rating = typeof data.rating === 'string' ? data.rating : '5.0'
   const imageTone = imageTones.includes(data.imageTone as (typeof imageTones)[number])
     ? data.imageTone as Product['imageTone']
     : 'peach'
@@ -229,7 +236,6 @@ function readPublishedProduct(id: string, data: Record<string, unknown>): Produc
     category: data.category,
     description: data.description,
     price: data.price,
-    rating,
     image: data.image,
     imageTone,
     ...(typeof data.originalPrice === 'number' ? { originalPrice: data.originalPrice } : {}),
@@ -239,20 +245,261 @@ function readPublishedProduct(id: string, data: Record<string, unknown>): Produc
   }
 }
 
+function formatReviewDate(value: string | null): string {
+  if (!value) return 'Fecha no disponible'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? 'Fecha no disponible'
+    : date.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
+type ProductReviewsDialogProps = {
+  product: Product
+  summary: ReviewSummary
+  user: User | null
+  emailVerified: boolean
+  onClose: () => void
+  onLogin: () => void
+  onSummaryChange: (productId: string, summary: ReviewSummary) => void
+}
+
+function ProductReviewsDialog({
+  product,
+  summary,
+  user,
+  emailVerified,
+  onClose,
+  onLogin,
+  onSummaryChange,
+}: ProductReviewsDialogProps) {
+  const [reviewResult, setReviewResult] = useState<{
+    viewerKey: string
+    data: ProductReviewsResult
+  } | null>(null)
+  const [rating, setRating] = useState(5)
+  const [comment, setComment] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [loadErrorViewerKey, setLoadErrorViewerKey] = useState('')
+  const [notice, setNotice] = useState('')
+  const viewerKey = user?.uid ?? 'guest'
+  const reviewData = reviewResult?.viewerKey === viewerKey ? reviewResult.data : null
+  const isLoading = reviewData === null && loadErrorViewerKey !== viewerKey
+
+  useEffect(() => {
+    let active = true
+    void loadProductReviews(product.id, user)
+      .then((data) => {
+        if (!active) return
+        setReviewResult({ viewerKey, data })
+        setRating(data.ownReview?.rating ?? 5)
+        setComment(data.ownReview?.comment ?? '')
+        setError('')
+        setLoadErrorViewerKey('')
+        onSummaryChange(product.id, data.summary)
+      })
+      .catch((loadError: unknown) => {
+        if (!active) return
+        setLoadErrorViewerKey(viewerKey)
+        setError(loadError instanceof Error ? loadError.message : 'No pudimos cargar las opiniones.')
+      })
+    return () => {
+      active = false
+    }
+  }, [onSummaryChange, product.id, user, viewerKey])
+
+  async function handleReviewSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!user) {
+      onLogin()
+      return
+    }
+    if (!emailVerified) {
+      setError('Verificá tu email desde Mi cuenta antes de publicar una opinión.')
+      return
+    }
+    if (saving) return
+
+    setSaving(true)
+    setError('')
+    setNotice('')
+    try {
+      const result = await saveProductReview(user, product.id, rating, comment)
+      const normalizedComment = comment.trim().replace(/\s+/g, ' ')
+      const now = new Date().toISOString()
+      const updatedReview = {
+        rating,
+        comment: normalizedComment,
+        createdAt: reviewData?.ownReview?.createdAt ?? now,
+        editedAt: reviewData?.ownReview ? now : null,
+        verifiedPurchase: true,
+        mine: true,
+      }
+      const updatedReviews: ProductReviewsResult = {
+        reviews: [
+          updatedReview,
+          ...(reviewData?.reviews.filter((review) => !review.mine) ?? []),
+        ],
+        canReview: true,
+        ownReview: updatedReview,
+        summary: result.summary,
+      }
+      setReviewResult({ viewerKey, data: updatedReviews })
+      setLoadErrorViewerKey('')
+      setComment(normalizedComment)
+      onSummaryChange(product.id, result.summary)
+      setNotice(result.message)
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'No pudimos guardar tu opinión.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="product-reviews-backdrop" onMouseDown={(event) => {
+      if (event.target === event.currentTarget && !saving) onClose()
+    }}>
+      <section
+        className="product-reviews-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="product-reviews-title"
+        onKeyDown={(event) => {
+          if (event.key === 'Escape' && !saving) onClose()
+        }}
+      >
+        <header className="product-reviews-header">
+          <div>
+            <span className="eyebrow section-eyebrow">DETALLE DEL PRODUCTO</span>
+            <h2 id="product-reviews-title">{product.name}</h2>
+            <p>{product.description}</p>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar opiniones" disabled={saving}>
+            <Icon name="close" />
+          </button>
+        </header>
+
+        <div className="product-reviews-overview">
+          <img src={product.image} alt={product.name} />
+          <div className="product-review-score">
+            <strong>{summary.reviewCount ? summary.ratingAverage.toFixed(1) : '—'}</strong>
+            <span className="review-stars" aria-label={summary.reviewCount ? `${summary.ratingAverage.toFixed(1)} de 5 estrellas` : 'Sin puntuaciones'}>
+              {summary.reviewCount ? '★★★★★' : '☆☆☆☆☆'}
+            </span>
+            <small>{summary.reviewCount} {summary.reviewCount === 1 ? 'opinión verificada' : 'opiniones verificadas'}</small>
+            <span className="review-verification-note"><Icon name="check" size={14} /> Solo compras aprobadas</span>
+          </div>
+          <div className="product-review-price">
+            <span>Precio publicado</span>
+            <strong>{money.format(product.price)}</strong>
+            <span>Stock informado: {product.stock ?? 'consultar'}</span>
+          </div>
+        </div>
+
+        <div className="product-reviews-content">
+          <section className="product-review-list" aria-labelledby="product-review-list-title">
+            <h3 id="product-review-list-title">Opiniones de compradores</h3>
+            {isLoading ? (
+              <p className="review-empty" role="status">Cargando opiniones verificadas…</p>
+            ) : error && !reviewData ? (
+              <p className="profile-form-error" role="alert">{error}</p>
+            ) : reviewData?.reviews.length ? (
+              reviewData.reviews.map((review, index) => (
+                <article className="product-review-item" key={`${review.createdAt ?? 'review'}-${index}`}>
+                  <div className="product-review-item-heading">
+                    <span className="review-stars" aria-label={`${review.rating} de 5 estrellas`}>
+                      {'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}
+                    </span>
+                    <time>{formatReviewDate(review.editedAt ?? review.createdAt)}</time>
+                  </div>
+                  <strong>{review.mine ? 'Tu opinión' : 'Comprador verificado'}</strong>
+                  <p>{review.comment}</p>
+                  <span className="review-verified-label"><Icon name="check" size={13} /> Compra verificada{review.editedAt ? ' · editada' : ''}</span>
+                </article>
+              ))
+            ) : (
+              <p className="review-empty">Todavía no hay opiniones. La primera reseña aparecerá después de una compra verificada.</p>
+            )}
+          </section>
+
+          <section className="product-review-form-section" aria-labelledby="product-review-form-title">
+            <h3 id="product-review-form-title">{reviewData?.ownReview ? 'Actualizar tu opinión' : 'Dejá tu opinión'}</h3>
+            {reviewData?.canReview ? (
+              !user ? (
+                <div className="review-callout">
+                  <p>Iniciá sesión con la cuenta que hizo la compra para dejar una opinión verificada.</p>
+                  <button className="button button-dark profile-save-button" type="button" onClick={onLogin}>Iniciar sesión</button>
+                </div>
+              ) : !emailVerified ? (
+                <p className="review-callout">Verificá tu email desde Mi cuenta para publicar o actualizar tu opinión.</p>
+              ) : (
+                <form className="product-review-form" onSubmit={(event) => void handleReviewSubmit(event)}>
+                  <label>Puntuación</label>
+                  <div className="review-rating-picker" role="radiogroup" aria-label="Puntuación del producto">
+                    {[1, 2, 3, 4, 5].map((value) => (
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={rating === value}
+                        aria-label={`${value} ${value === 1 ? 'estrella' : 'estrellas'}`}
+                        className={value <= rating ? 'active' : ''}
+                        key={value}
+                        onClick={() => setRating(value)}
+                      >
+                        ★
+                      </button>
+                    ))}
+                  </div>
+                  <label htmlFor="product-review-comment">Tu experiencia</label>
+                  <textarea
+                    id="product-review-comment"
+                    value={comment}
+                    onChange={(event) => setComment(event.target.value)}
+                    minLength={10}
+                    maxLength={1000}
+                    rows={5}
+                    placeholder="Contá qué te pareció el producto. No incluyas datos personales."
+                    required
+                  />
+                  <span className="review-character-count">{comment.length}/1000</span>
+                  {error && <p className="profile-form-error" role="alert">{error}</p>}
+                  {notice && <p className="review-success" role="status">{notice}</p>}
+                  <button className="button button-dark profile-save-button" type="submit" disabled={saving || isLoading}>
+                    {saving ? <><span className="button-spinner" aria-hidden="true" /> Guardando…</> : reviewData.ownReview ? 'Actualizar opinión' : 'Publicar opinión'}
+                  </button>
+                  <small>Una opinión por cuenta y producto. Podés editarla más adelante.</small>
+                </form>
+              )
+            ) : (
+              <div className="review-callout">
+                <p>Las opiniones están reservadas a quienes completaron el pago de este producto. Así cada reseña refleja una compra real.</p>
+                {!user && <button className="auth-switch" type="button" onClick={onLogin}>Iniciar sesión para consultar si tu compra ya está habilitada</button>}
+              </div>
+            )}
+          </section>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 type ProductCardProps = {
   product: Product
+  summary: ReviewSummary
   isFavorite: boolean
   disabled: boolean
   onFavorite: () => void
   onAdd: () => void
+  onOpen: () => void
 }
 
-function ProductCard({ product, isFavorite, disabled, onFavorite, onAdd }: ProductCardProps) {
+function ProductCard({ product, summary, isFavorite, disabled, onFavorite, onAdd, onOpen }: ProductCardProps) {
   return (
     <article className="product-card">
       <div className={`product-image image-${product.imageTone}`}>
         <img src={product.image} alt={product.name} loading="lazy" />
-        {product.badge && <span className={`product-badge ${product.badge === 'Más elegido' ? 'badge-pink' : ''}`}>{product.badge}</span>}
+        {product.badge && <span className={`product-badge ${product.badge === 'Más elegido' ? 'badge-pink' : ''}`}>{product.badge === 'Más elegido' ? 'Selección Lúmina' : product.badge}</span>}
         <button
           className={`favorite-button ${isFavorite ? 'is-favorite' : ''}`}
           onClick={onFavorite}
@@ -267,8 +514,13 @@ function ProductCard({ product, isFavorite, disabled, onFavorite, onAdd }: Produ
         </button>
       </div>
       <div className="product-info">
-        <div className="product-meta"><span>{product.category}</span><span className="product-rating">★ <b>{product.rating}</b></span></div>
-        <h3>{product.name}</h3>
+        <div className="product-meta"><span>{product.category}</span><span className="product-rating" aria-label={summary.reviewCount ? `${summary.ratingAverage.toFixed(1)} sobre 5, ${summary.reviewCount} opiniones` : 'Sin opiniones verificadas'}>
+          {summary.reviewCount ? <>★ <b>{summary.ratingAverage.toFixed(1)}</b> <small>({summary.reviewCount})</small></> : <small>Sin opiniones</small>}
+        </span></div>
+        <h3><button className="product-details-link" type="button" onClick={onOpen}>{product.name}</button></h3>
+        <button className="product-reviews-link" type="button" onClick={onOpen}>
+          {summary.reviewCount ? `Ver opiniones (${summary.reviewCount})` : 'Ver detalle y opiniones'}
+        </button>
         <div className="product-price">
           <strong>{money.format(product.price)}</strong>
           {product.originalPrice && <del>{money.format(product.originalPrice)}</del>}
@@ -284,12 +536,25 @@ type ProductRailProps = {
   description: string
   products: Product[]
   favorites: string[]
+  reviewSummaries: Record<string, ReviewSummary>
   disabled: boolean
   onFavorite: (productId: string) => void
   onAdd: (product: Product) => void
+  onOpenProduct: (product: Product) => void
 }
 
-function ProductRail({ id, title, description, products: railProducts, favorites, disabled, onFavorite, onAdd }: ProductRailProps) {
+function ProductRail({
+  id,
+  title,
+  description,
+  products: railProducts,
+  favorites,
+  reviewSummaries,
+  disabled,
+  onFavorite,
+  onAdd,
+  onOpenProduct,
+}: ProductRailProps) {
   const railRef = useRef<HTMLDivElement>(null)
   if (!railProducts.length) return null
 
@@ -313,10 +578,12 @@ function ProductRail({ id, title, description, products: railProducts, favorites
           <ProductCard
             key={product.id}
             product={product}
+            summary={reviewSummaries[product.id] ?? { ratingAverage: 0, reviewCount: 0 }}
             isFavorite={favorites.includes(product.id)}
             disabled={disabled}
             onFavorite={() => onFavorite(product.id)}
             onAdd={() => onAdd(product)}
+            onOpen={() => onOpenProduct(product)}
           />
         ))}
       </div>
@@ -329,6 +596,7 @@ function Storefront() {
   const [search, setSearch] = useState('')
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const [heroSlideIndex, setHeroSlideIndex] = useState(0)
+  const [heroPaused, setHeroPaused] = useState(false)
   const [announcementIndex, setAnnouncementIndex] = useState(0)
   const [announcementPaused, setAnnouncementPaused] = useState(false)
   const [productSort, setProductSort] = useState<ProductSort>('recommended')
@@ -336,15 +604,28 @@ function Storefront() {
   const [favorites, setFavorites] = useState<string[]>(() => readGuestStore().favorites)
   const [cart, setCart] = useState<Record<string, number>>(() => readGuestStore().cart)
   const [catalog, setCatalog] = useState<Product[]>(products)
+  const [reviewSummaries, setReviewSummaries] = useState<Record<string, ReviewSummary>>({})
+  const [reviewSummaryError, setReviewSummaryError] = useState('')
+  const [productDetailsProduct, setProductDetailsProduct] = useState<Product | null>(null)
   const [cartOpen, setCartOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutError, setCheckoutError] = useState('')
-  const [checkoutOutcome, setCheckoutOutcome] = useState<'approved' | 'declined'>('approved')
+  const [paymentReturnOrderId, setPaymentReturnOrderId] = useState(() => {
+    const currentUrl = new URL(window.location.href)
+    return currentUrl.searchParams.get('payment') === 'return'
+      ? currentUrl.searchParams.get('order_id') ?? ''
+      : ''
+  })
+  const [paymentReturnStatus, setPaymentReturnStatus] = useState<
+    'checking' | 'approved' | 'pending' | 'failed' | 'review' | 'error'
+  >('checking')
+  const [paymentReturnMessage, setPaymentReturnMessage] = useState('')
+  const [paymentReturnTotal, setPaymentReturnTotal] = useState<number | null>(null)
+  const [paymentRefreshCount, setPaymentRefreshCount] = useState(0)
   const [checkoutShipping, setCheckoutShipping] = useState<ShippingAddress>({
     ...emptyCustomerProfile,
   })
-  const [completedOrder, setCompletedOrder] = useState<{ id: string; total: number } | null>(null)
   const [authOpen, setAuthOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
@@ -379,8 +660,10 @@ function Storefront() {
   const searchInputRef = useRef<HTMLInputElement>(null)
   const saveQueue = useRef<Promise<void>>(Promise.resolve())
   const knownAdminOrderIds = useRef<Set<string> | null>(null)
+  const clearedPaymentOrderIds = useRef<Set<string>>(new Set())
   const hasBlockingOverlay = authOpen || accountOpen || cartOpen || checkoutOpen ||
-    completedOrder !== null || profileEditorOpen || adminOpen
+    profileEditorOpen || adminOpen || productDetailsProduct !== null ||
+    (Boolean(paymentReturnOrderId) && Boolean(user))
 
   useEffect(() => {
     if (mobileSearchOpen) searchInputRef.current?.focus()
@@ -393,6 +676,112 @@ function Storefront() {
     }, 6500)
     return () => window.clearInterval(interval)
   }, [announcementPaused])
+
+  useEffect(() => {
+    if (heroPaused || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        setHeroSlideIndex((current) => (current + 1) % heroSlides.length)
+      }
+    }, 6500)
+    return () => window.clearInterval(interval)
+  }, [heroPaused])
+
+  useEffect(() => {
+    const nextSlide = heroSlides[(heroSlideIndex + 1) % heroSlides.length]
+    const nextImage = new Image()
+    nextImage.decoding = 'async'
+    nextImage.src = nextSlide.image
+  }, [heroSlideIndex])
+
+  useEffect(() => {
+    let active = true
+    void loadReviewSummaries()
+      .then((summaries) => {
+        if (active) setReviewSummaries(summaries)
+      })
+      .catch((error: unknown) => {
+        console.error('No se pudieron cargar las puntuaciones verificadas de los productos.', error)
+        if (active) setReviewSummaryError('No pudimos cargar las opiniones en este momento.')
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!paymentReturnOrderId || !user) return
+    const currentUrl = new URL(window.location.href)
+    if (currentUrl.searchParams.get('payment') !== 'return') return
+    currentUrl.searchParams.delete('payment')
+    currentUrl.searchParams.delete('order_id')
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`,
+    )
+  }, [paymentReturnOrderId, user])
+
+  useEffect(() => {
+    if (!paymentReturnOrderId) return
+    if (!user || authLoading) return
+
+    let active = true
+    let attempts = 0
+    let timer = 0
+
+    const checkPaymentStatus = async () => {
+      attempts += 1
+      try {
+        const result = await loadCustomerOrder(user, paymentReturnOrderId)
+        if (!active) return
+        const { paymentStatus, status, total } = result.order
+        setPaymentReturnTotal(total)
+        if (paymentStatus === 'approved' && status === 'payment_review') {
+          setPaymentReturnStatus('review')
+          return
+        }
+        if (paymentStatus === 'approved') {
+          if (!clearedPaymentOrderIds.current.has(paymentReturnOrderId)) {
+            clearedPaymentOrderIds.current.add(paymentReturnOrderId)
+            setCart((current) => {
+              const next = { ...current }
+              result.order.items.forEach(({ id, quantity }) => {
+                const remainingQuantity = (next[id] ?? 0) - quantity
+                if (remainingQuantity > 0) next[id] = remainingQuantity
+                else delete next[id]
+              })
+              return next
+            })
+          }
+          setPaymentReturnStatus('approved')
+          return
+        }
+        if (
+          ['rejected', 'cancelled', 'refunded', 'charged_back', 'expired', 'preference_failed'].includes(paymentStatus) ||
+          ['payment_failed', 'payment_expired'].includes(status)
+        ) {
+          setPaymentReturnStatus('failed')
+          return
+        }
+        if (attempts < 12) {
+          timer = window.setTimeout(() => void checkPaymentStatus(), 2500)
+        } else {
+          setPaymentReturnStatus('pending')
+        }
+      } catch (error) {
+        if (!active) return
+        setPaymentReturnMessage(error instanceof Error ? error.message : 'No pudimos consultar el estado del pedido.')
+        setPaymentReturnStatus('error')
+      }
+    }
+
+    void checkPaymentStatus()
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [authLoading, paymentRefreshCount, paymentReturnOrderId, user])
 
   useEffect(() => {
     if (!hasBlockingOverlay) return
@@ -551,7 +940,9 @@ function Storefront() {
         if (knownAdminOrderIds.current) {
           const newOrders = orders.filter((order) => !knownAdminOrderIds.current?.has(order.id))
           if (newOrders.length) {
-            setNotice(newOrders.length === 1 ? '¡Llegó un pedido de prueba nuevo!' : `Llegaron ${newOrders.length} pedidos de prueba nuevos.`)
+            setNotice(newOrders.length === 1
+              ? 'Se registró un nuevo pedido. Revisá su estado de pago.'
+              : `Se registraron ${newOrders.length} pedidos nuevos. Revisá sus estados de pago.`)
           }
         }
         knownAdminOrderIds.current = nextIds
@@ -695,13 +1086,16 @@ function Storefront() {
     return filtered.sort((left, right) => {
       if (productSort === 'price-asc') return left.price - right.price
       if (productSort === 'price-desc') return right.price - left.price
-      if (productSort === 'rating') return Number(right.rating) - Number(left.rating)
+      if (productSort === 'rating') {
+        return (reviewSummaries[right.id]?.ratingAverage ?? 0) -
+          (reviewSummaries[left.id]?.ratingAverage ?? 0)
+      }
       if (productSort === 'newest') {
         return Number(right.badge === 'Nuevo') - Number(left.badge === 'Nuevo')
       }
       return 0
     })
-  }, [activeCategory, catalog, productSort, saleOnly, search])
+  }, [activeCategory, catalog, productSort, reviewSummaries, saleOnly, search])
   const categoryCounts = useMemo(
     () => Object.fromEntries(
       categories.map((category) => [
@@ -738,10 +1132,11 @@ function Storefront() {
       .filter((product) => !favorites.includes(product.id))
       .sort((left, right) =>
         (favoriteCategories[right.category] ?? 0) - (favoriteCategories[left.category] ?? 0) ||
-        Number(right.rating) - Number(left.rating),
+        (reviewSummaries[right.id]?.ratingAverage ?? 0) -
+          (reviewSummaries[left.id]?.ratingAverage ?? 0),
       )
       .slice(0, 10)
-  }, [activeCatalog, favorites])
+  }, [activeCatalog, favorites, reviewSummaries])
 
   const cartItems = useMemo(
     () =>
@@ -770,6 +1165,10 @@ function Storefront() {
   const profileCompletion = Math.round(
     (completedProfileFields / profileCompletionFields.length) * 100,
   )
+  const handleReviewSummaryChange = useCallback((productId: string, summary: ReviewSummary) => {
+    setReviewSummaries((current) => ({ ...current, [productId]: summary }))
+    setReviewSummaryError('')
+  }, [])
 
   if (authLoading) {
     return (
@@ -799,6 +1198,17 @@ function Storefront() {
     if (storeLoading || authLoading) return
     setCart((current) => ({ ...current, [product.id]: (current[product.id] ?? 0) + 1 }))
     setNotice(`${product.name} se sumó a tu bolso`)
+  }
+
+  function openProductDetails(product: Product) {
+    setProductDetailsProduct(product)
+  }
+
+  function openLoginForReview() {
+    setProductDetailsProduct(null)
+    setAuthMode('login')
+    setAuthError('')
+    setAuthOpen(true)
   }
 
   function changeQuantity(id: string, amount: number) {
@@ -1041,7 +1451,7 @@ function Storefront() {
   function startCheckout() {
     setCartOpen(false)
     if (!user) {
-      setNotice('Ingresá a tu cuenta para registrar el pedido de prueba.')
+      setNotice('Ingresá a tu cuenta para continuar con el pago.')
       setAuthMode('login')
       setAuthOpen(true)
       return
@@ -1055,12 +1465,11 @@ function Storefront() {
       province: customerProfile.province,
       postalCode: customerProfile.postalCode,
     })
-    setCheckoutOutcome('approved')
     setCheckoutError('')
     setCheckoutOpen(true)
   }
 
-  async function handleSimulatedCheckout(event: FormEvent<HTMLFormElement>) {
+  async function handleMercadoPagoCheckout(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!user || checkoutBusy) return
     const formData = new FormData(event.currentTarget)
@@ -1080,24 +1489,17 @@ function Storefront() {
     setCheckoutBusy(true)
     setCheckoutError('')
     try {
-      const result = await submitSimulatedOrder(
+      const result = await createCheckoutPreference(
         user,
         cartItems.map(({ product, quantity }) => ({ productId: product.id, quantity })),
         shipping,
-        checkoutOutcome,
       )
-      if (!result.approved) {
-        setCheckoutError(result.message)
-        return
-      }
       setCustomerProfile(shipping)
       setCustomerProfileDraft(shipping)
-      setCart({})
       setCheckoutOpen(false)
-      setCompletedOrder({ id: result.orderId ?? '', total: result.total ?? cartTotal })
-      setNotice('Pedido de prueba aprobado y registrado.')
+      window.location.assign(result.checkoutUrl)
     } catch (error) {
-      console.error('No se pudo completar el checkout de prueba.')
+      console.error('No se pudo iniciar el checkout de Mercado Pago.')
       setCheckoutError(error instanceof Error ? error.message : 'No pudimos registrar el pedido.')
     } finally {
       setCheckoutBusy(false)
@@ -1154,7 +1556,6 @@ function Storefront() {
         category,
         description,
         price,
-        rating: '5.0',
         image,
         imageTone,
         stock,
@@ -1212,7 +1613,6 @@ function Storefront() {
           category: product.category,
           description: product.description,
           price: product.price,
-          rating: product.rating,
           image: product.image,
           imageTone: product.imageTone,
           stock: product.stock ?? 50,
@@ -1419,15 +1819,22 @@ function Storefront() {
             Explorar colección <Icon name="arrow" size={17} />
           </a>
           <div className="hero-note">
-            <span className="avatar-stack" aria-hidden="true"><i>♡</i><i>✳</i><i>☺</i></span>
-            <span><strong>+2.400</strong> looks encontraron su detalle</span>
+            <span className="benefit-icon"><Icon name="lock" size={16} /></span>
+            <span><strong>Compra responsable</strong> · opiniones de compras verificadas</span>
           </div>
           <span className="hero-scribble" aria-hidden="true">✳</span>
         </div>
-        <div className="hero-visual" aria-roledescription="carrusel" aria-label="Inspiración Lúmina">
+        <div
+          className="hero-visual"
+          aria-roledescription="carrusel"
+          aria-label="Inspiración Lúmina"
+        >
           <img
+            key={heroSlides[heroSlideIndex].image}
             src={heroSlides[heroSlideIndex].image}
             alt={heroSlides[heroSlideIndex].alt}
+            fetchPriority="high"
+            decoding="async"
           />
           <div className="hero-sticker"><span>shine<br />your way</span><b>✳</b></div>
           <div className="hero-caption">
@@ -1435,15 +1842,18 @@ function Storefront() {
             <span>{String(heroSlideIndex + 1).padStart(2, '0')} / {String(heroSlides.length).padStart(2, '0')}</span>
             <span>{heroSlides[heroSlideIndex].caption}</span>
             <button type="button" onClick={() => setHeroSlideIndex((current) => (current + 1) % heroSlides.length)} aria-label="Siguiente imagen">›</button>
+            <button type="button" onClick={() => setHeroPaused((paused) => !paused)} aria-label={heroPaused ? 'Reanudar carrusel automático' : 'Pausar carrusel automático'} aria-pressed={heroPaused}>
+              {heroPaused ? '▶' : 'Ⅱ'}
+            </button>
           </div>
         </div>
         <span className="hero-side-note">HECHO PARA BRILLAR · DESDE BUENOS AIRES</span>
       </section>
 
       <section className="benefit-strip" aria-label="Beneficios">
-        <div><span className="benefit-icon">✳</span><span><strong>Envíos a todo el país</strong><small>Seguimiento en cada paso</small></span></div>
-        <div><span className="benefit-icon">♡</span><span><strong>Hecho para vos</strong><small>Detalles elegidos con amor</small></span></div>
-        <div><span className="benefit-icon">↺</span><span><strong>Cambios fáciles</strong><small>Tenés 30 días para decidir</small></span></div>
+        <div><span className="benefit-icon">₱</span><span><strong>Total visible antes de pagar</strong><small>Precio y envío informados en el checkout</small></span></div>
+        <div><span className="benefit-icon"><Icon name="lock" size={17} /></span><span><strong>Pago en Mercado Pago</strong><small>Checkout externo y seguro</small></span></div>
+        <div><span className="benefit-icon">★</span><span><strong>Opiniones verificadas</strong><small>Solo de compras acreditadas</small></span></div>
       </section>
 
       <section className="category-discovery section-wrap" aria-labelledby="category-discovery-title">
@@ -1473,19 +1883,23 @@ function Storefront() {
             description="Piezas elegidas con precios especiales por tiempo limitado."
             products={dealProducts}
             favorites={favorites}
+            reviewSummaries={reviewSummaries}
             disabled={storeLoading || authLoading}
             onFavorite={toggleFavorite}
             onAdd={addToCart}
+            onOpenProduct={openProductDetails}
           />
           <ProductRail
             id="for-you"
-            title={favorites.length ? 'Elegidos para vos' : 'Los más elegidos'}
-            description={favorites.length ? 'Más ideas según las categorías de tus favoritos.' : 'Los favoritos de la comunidad Lúmina para inspirarte.'}
+            title={favorites.length ? 'Elegidos para vos' : 'Detalles para explorar'}
+            description={favorites.length ? 'Ideas según las categorías de tus favoritos.' : 'Piezas de la colección para encontrar tu próximo detalle.'}
             products={personalizedProducts}
             favorites={favorites}
+            reviewSummaries={reviewSummaries}
             disabled={storeLoading || authLoading}
             onFavorite={toggleFavorite}
             onAdd={addToCart}
+            onOpenProduct={openProductDetails}
           />
         </>
       )}
@@ -1497,7 +1911,7 @@ function Storefront() {
             <h2>Encontrá tu <span>próximo favorito</span></h2>
             <p className="collection-intro">Explorá accesorios, bijou y bolsos elegidos para acompañar tu estilo.</p>
           </div>
-          <span className="collection-total">{categoryCounts.Todo} piezas para descubrir</span>
+          <span className="collection-total">{categoryCounts.Todo} productos disponibles</span>
         </div>
         <div className="category-tabs" role="group" aria-label="Filtrar por categoría">
           {categories.map((category) => (
@@ -1541,6 +1955,7 @@ function Storefront() {
             </select>
           </label>
         </div>
+        {reviewSummaryError && <p className="review-summary-warning" role="status">{reviewSummaryError}</p>}
 
         {visibleProducts.length ? (
           <div className="product-grid">
@@ -1548,10 +1963,12 @@ function Storefront() {
               <ProductCard
                 key={product.id}
                 product={product}
+                summary={reviewSummaries[product.id] ?? { ratingAverage: 0, reviewCount: 0 }}
                 isFavorite={favorites.includes(product.id)}
                 disabled={storeLoading || authLoading}
                 onFavorite={() => toggleFavorite(product.id)}
                 onAdd={() => addToCart(product)}
+                onOpen={() => openProductDetails(product)}
               />
             ))}
           </div>
@@ -1580,15 +1997,11 @@ function Storefront() {
 
       <section className="newsletter">
         <span className="newsletter-star">✳</span>
-        <span className="eyebrow">UN CLUB CON MUCHO BRILLO</span>
-        <h2>Las cosas lindas llegan<br />a quien <span>se suscribe.</span></h2>
-        <p>Novedades, inspiración y un regalito para tu primera compra.</p>
-        <form className="newsletter-form" onSubmit={(event) => { event.preventDefault(); setNotice('¡Gracias! Pronto vas a recibir novedades ✨'); event.currentTarget.reset() }}>
-          <label className="sr-only" htmlFor="newsletter-email">Tu email</label>
-          <input id="newsletter-email" type="email" placeholder="Tu email más lindo" required />
-          <button type="submit" aria-label="Suscribirme"><Icon name="arrow" /></button>
-        </form>
-        <small>Al suscribirte aceptás recibir novedades de Lúmina.</small>
+        <span className="eyebrow">COMPRÁ CON INFORMACIÓN CLARA</span>
+        <h2>Elegí con calma,<br /><span>comprá con confianza.</span></h2>
+        <p>Revisá materiales, precio, disponibilidad y opiniones verificadas antes de decidir.</p>
+        <a className="button button-dark" href="#productos">Volver al catálogo <Icon name="arrow" size={17} /></a>
+        <small>Las opiniones solo se habilitan luego de una compra aprobada.</small>
       </section>
 
       <footer className="site-footer">
@@ -1596,12 +2009,25 @@ function Storefront() {
           <a className="wordmark footer-wordmark" href="#inicio">lúmina<span className="wordmark-star">✳</span></a>
           <p>Un detalle, todo tu estilo.<br />Hecho con amor en Buenos Aires.</p>
           <div className="footer-links"><a href="#productos">La colección</a><a href="#novedades">Nuestra inspiración</a><button onClick={() => (user ? setAccountOpen(true) : setAuthOpen(true))}>Mi cuenta</button></div>
-          <span className="social-note">Seguinos <b>◎</b> <b>♪</b></span>
+          <span className="social-note">Atención responsable · Lúmina</span>
         </div>
         <div className="footer-bottom"><span>© 2026 Lúmina. Todos los detalles reservados.</span><span>Hecho para brillar <b>✳</b></span></div>
       </footer>
 
       {notice && <div className="toast" role="status"><Icon name="check" size={18} />{notice}</div>}
+
+      {productDetailsProduct && (
+        <ProductReviewsDialog
+          key={productDetailsProduct.id}
+          product={productDetailsProduct}
+          summary={reviewSummaries[productDetailsProduct.id] ?? { ratingAverage: 0, reviewCount: 0 }}
+          user={user}
+          emailVerified={emailVerified}
+          onClose={() => setProductDetailsProduct(null)}
+          onLogin={openLoginForReview}
+          onSummaryChange={handleReviewSummaryChange}
+        />
+      )}
 
       {authOpen && (
         <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setAuthOpen(false) }}>
@@ -1830,13 +2256,13 @@ function Storefront() {
           <section className="checkout-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
             <div className="profile-editor-heading">
               <div>
-                <span className="eyebrow section-eyebrow">ÚLTIMO PASO · MODO DEMO</span>
+                <span className="eyebrow section-eyebrow">PAGO SEGURO · MERCADO PAGO</span>
                 <h2 id="checkout-title">Coordinemos tu pedido</h2>
-                <p>Completá la entrega y elegí el resultado de pago ficticio. No se te va a cobrar.</p>
+                <p>Completá los datos de entrega. Luego vas a continuar en Mercado Pago para realizar el pago.</p>
               </div>
               <button className="icon-button" type="button" onClick={() => setCheckoutOpen(false)} aria-label="Cerrar checkout" disabled={checkoutBusy}><Icon name="close" /></button>
             </div>
-            <form className="checkout-form" onSubmit={(event) => void handleSimulatedCheckout(event)}>
+            <form className="checkout-form" onSubmit={(event) => void handleMercadoPagoCheckout(event)}>
               <div className="checkout-fields">
                 <label>Nombre y apellido<input name="shipping-name" autoComplete="name" defaultValue={checkoutShipping.name} required maxLength={80} /></label>
                 <label>Teléfono<input name="shipping-phone" type="tel" autoComplete="tel" defaultValue={checkoutShipping.phone} required maxLength={30} /></label>
@@ -1846,48 +2272,71 @@ function Storefront() {
                 <label>Provincia<input name="shipping-province" autoComplete="address-level1" defaultValue={checkoutShipping.province} required maxLength={80} /></label>
                 <label>Código postal<input name="shipping-postal" autoComplete="postal-code" defaultValue={checkoutShipping.postalCode} required maxLength={20} /></label>
               </div>
-              <div className="demo-payment">
-                <div className="demo-payment-heading">
-                  <span className="eyebrow section-eyebrow">PAGO DE PRUEBA</span>
-                  <strong>No ingreses datos de tarjeta</strong>
-                </div>
-                <div className="demo-payment-options" role="group" aria-label="Resultado del pago simulado">
-                  <button type="button" className={checkoutOutcome === 'approved' ? 'demo-payment-option selected' : 'demo-payment-option'} onClick={() => setCheckoutOutcome('approved')} aria-pressed={checkoutOutcome === 'approved'}>
-                    <span className="demo-payment-indicator" />
-                    <span><strong>Pago aprobado</strong><small>Simula una compra exitosa</small></span>
-                  </button>
-                  <button type="button" className={checkoutOutcome === 'declined' ? 'demo-payment-option selected' : 'demo-payment-option'} onClick={() => setCheckoutOutcome('declined')} aria-pressed={checkoutOutcome === 'declined'}>
-                    <span className="demo-payment-indicator" />
-                    <span><strong>Pago rechazado</strong><small>Prueba el caso de error</small></span>
-                  </button>
-                </div>
-              </div>
               <div className="checkout-totals">
                 <div><span>{cartCount} {cartCount === 1 ? 'producto' : 'productos'}</span><strong>{money.format(cartTotal)}</strong></div>
                 <div><span>Envío</span><strong>{estimatedShipping ? money.format(estimatedShipping) : 'Gratis'}</strong></div>
-                <div className="checkout-grand-total"><span>Total de demostración</span><strong>{money.format(cartTotal + estimatedShipping)}</strong></div>
+                <div className="checkout-grand-total"><span>Total a pagar</span><strong>{money.format(cartTotal + estimatedShipping)}</strong></div>
               </div>
               {checkoutError && <p className="profile-form-error" role="alert">{checkoutError}</p>}
               <button className="button button-dark profile-save-button" type="submit" disabled={checkoutBusy}>
-                {checkoutBusy ? <><span className="button-spinner" aria-hidden="true" /> Registrando…</> : checkoutOutcome === 'approved' ? 'Simular y registrar pedido' : 'Simular pago rechazado'}
+                {checkoutBusy ? <><span className="button-spinner" aria-hidden="true" /> Preparando pago…</> : 'Continuar a Mercado Pago'}
                 {!checkoutBusy && <Icon name="arrow" size={17} />}
               </button>
-              <p className="checkout-disclaimer">Entorno académico: el pago es ficticio y no se procesa dinero real.</p>
+              <p className="checkout-disclaimer">El estado del pedido se confirma cuando Mercado Pago notifica el resultado al servidor.</p>
             </form>
           </section>
         </div>
       )}
 
-      {completedOrder && (
-        <div className="checkout-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCompletedOrder(null) }}>
-          <section className="order-success" role="dialog" aria-modal="true" aria-labelledby="order-success-title">
-            <span className="order-success-icon"><Icon name="check" size={30} /></span>
-            <span className="eyebrow section-eyebrow">PEDIDO DE DEMOSTRACIÓN</span>
-            <h2 id="order-success-title">¡Tu pedido quedó registrado!</h2>
-            <p>El pago es ficticio. El panel de administración ya puede ver esta compra y actualizar su estado.</p>
-            <div className="order-success-reference"><span>Número de pedido</span><strong>{completedOrder.id}</strong></div>
-            <div className="order-success-reference"><span>Total de prueba</span><strong>{money.format(completedOrder.total)}</strong></div>
-            <button className="button button-dark profile-save-button" onClick={() => setCompletedOrder(null)}>Seguir explorando</button>
+      {paymentReturnOrderId && user && (
+        <div className="checkout-backdrop" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setPaymentReturnOrderId('')
+        }}>
+          <section className="order-success" role="dialog" aria-modal="true" aria-labelledby="payment-return-title">
+            <span className="order-success-icon">
+              <Icon name={paymentReturnStatus === 'approved' ? 'check' : 'bag'} size={30} />
+            </span>
+            <span className="eyebrow section-eyebrow">ESTADO DEL PAGO</span>
+            <h2 id="payment-return-title">
+              {paymentReturnStatus === 'checking' ? 'Verificando tu pago…'
+                : paymentReturnStatus === 'approved' ? '¡Pago confirmado!'
+                  : paymentReturnStatus === 'review' ? 'Estamos revisando tu pedido'
+                    : paymentReturnStatus === 'failed' ? 'El pago no se completó'
+                      : paymentReturnStatus === 'pending' ? 'El pago sigue pendiente'
+                        : 'No pudimos consultar el pago'}
+            </h2>
+            <p>
+              {paymentReturnStatus === 'checking' ? 'Consultamos el estado confirmado por Mercado Pago.'
+                : paymentReturnStatus === 'approved' ? 'Mercado Pago confirmó el pago y el pedido quedó registrado.'
+                  : paymentReturnStatus === 'review' ? 'El pago fue aprobado, pero el equipo debe revisar la disponibilidad del pedido.'
+                    : paymentReturnStatus === 'failed' ? 'No se registró un pago aprobado. Podés volver a intentarlo desde tu bolso.'
+                      : paymentReturnStatus === 'pending' ? 'Mercado Pago todavía no confirmó el resultado. Podés volver a consultar en unos instantes.'
+                        : paymentReturnMessage}
+            </p>
+            <div className="order-success-reference"><span>Número de pedido</span><strong>{paymentReturnOrderId}</strong></div>
+            {paymentReturnTotal !== null && (
+              <div className="order-success-reference"><span>Total</span><strong>{money.format(paymentReturnTotal)}</strong></div>
+            )}
+            {['pending', 'error'].includes(paymentReturnStatus) && (
+              <button
+                className="button button-dark profile-save-button"
+                onClick={() => {
+                  setPaymentReturnStatus('checking')
+                  setPaymentReturnMessage('')
+                  setPaymentRefreshCount((count) => count + 1)
+                }}
+              >
+                Volver a consultar
+              </button>
+            )}
+            {paymentReturnStatus !== 'checking' && (
+              <button
+                className="auth-switch"
+                onClick={() => setPaymentReturnOrderId('')}
+              >
+                Seguir explorando
+              </button>
+            )}
           </section>
         </div>
       )}
@@ -1899,7 +2348,7 @@ function Storefront() {
               <div>
                 <span className="eyebrow section-eyebrow">GESTIÓN DE LÚMINA</span>
                 <h2 id="admin-title">Panel de administración</h2>
-                <p>Los pagos y pedidos de esta tienda son simulados.</p>
+                <p>Los pedidos se habilitan para gestión cuando Mercado Pago confirma el pago.</p>
               </div>
               <button className="icon-button" onClick={() => setAdminOpen(false)} aria-label="Cerrar panel de administración"><Icon name="close" /></button>
             </header>
@@ -1919,16 +2368,16 @@ function Storefront() {
                   <article className="admin-order-card" key={order.id}>
                     <div className="admin-order-heading">
                       <div><span className="admin-order-id">Pedido {order.id.slice(0, 8).toLocaleUpperCase('es-AR')}</span><small>{order.createdAt?._seconds ? new Date(order.createdAt._seconds * 1000).toLocaleString('es-AR') : 'Pedido reciente'}</small></div>
-                      <span className={`admin-order-status status-${order.status}`}>{order.status === 'new' ? 'Nuevo' : order.status === 'preparing' ? 'Preparando' : order.status === 'shipped' ? 'Enviado' : order.status === 'delivered' ? 'Entregado' : order.status}</span>
+                      <span className={`admin-order-status status-${order.status}`}>{order.status === 'pending_payment' ? 'Pago pendiente' : order.status === 'payment_failed' ? 'Pago no completado' : order.status === 'payment_expired' ? 'Pago vencido' : order.status === 'payment_review' ? 'Revisión necesaria' : order.status === 'new' ? 'Nuevo' : order.status === 'preparing' ? 'Preparando' : order.status === 'shipped' ? 'Enviado' : order.status === 'delivered' ? 'Entregado' : order.status}</span>
                     </div>
                     <div className="admin-order-customer"><strong>{order.customerName}</strong><span>{order.customerEmail}</span><span>{order.shipping.address}{order.shipping.apartment ? `, ${order.shipping.apartment}` : ''}, {order.shipping.city}, {order.shipping.province} {order.shipping.postalCode}</span></div>
                     <div className="admin-order-items">{order.items.map((item) => <div key={item.id}><span>{item.quantity} × {item.name}</span><strong>{money.format(item.lineTotal)}</strong></div>)}</div>
-                    <div className="admin-order-total"><span>Pago de prueba aprobado · envío {order.shippingCost ? money.format(order.shippingCost) : 'gratis'}</span><strong>{money.format(order.total)}</strong></div>
-                    {order.status === 'new' && <button className="admin-order-action" onClick={() => void handleAdminOrderStatus(order.id, 'preparing')}>Preparar pedido <Icon name="arrow" size={15} /></button>}
-                    {order.status === 'preparing' && <button className="admin-order-action" onClick={() => void handleAdminOrderStatus(order.id, 'shipped')}>Marcar como enviado <Icon name="arrow" size={15} /></button>}
-                    {order.status === 'shipped' && <button className="admin-order-action" onClick={() => void handleAdminOrderStatus(order.id, 'delivered')}>Marcar como entregado <Icon name="check" size={15} /></button>}
+                    <div className="admin-order-total"><span>{order.paymentStatus === 'approved' ? 'Pago acreditado' : order.paymentStatus === 'pending' ? 'Esperando confirmación de pago' : `Pago: ${order.paymentStatus}`} · envío {order.shippingCost ? money.format(order.shippingCost) : 'gratis'}</span><strong>{money.format(order.total)}</strong></div>
+                    {order.paymentStatus === 'approved' && order.status === 'new' && <button className="admin-order-action" onClick={() => void handleAdminOrderStatus(order.id, 'preparing')}>Preparar pedido <Icon name="arrow" size={15} /></button>}
+                    {order.paymentStatus === 'approved' && order.status === 'preparing' && <button className="admin-order-action" onClick={() => void handleAdminOrderStatus(order.id, 'shipped')}>Marcar como enviado <Icon name="arrow" size={15} /></button>}
+                    {order.paymentStatus === 'approved' && order.status === 'shipped' && <button className="admin-order-action" onClick={() => void handleAdminOrderStatus(order.id, 'delivered')}>Marcar como entregado <Icon name="check" size={15} /></button>}
                   </article>
-                )) : !adminLoading && <div className="admin-empty"><Icon name="bag" size={28} /><h3>Todavía no hay pedidos</h3><p>Las compras de prueba van a aparecer acá con sus productos, total y datos de entrega.</p></div>}
+                )) : !adminLoading && <div className="admin-empty"><Icon name="bag" size={28} /><h3>Todavía no hay pedidos</h3><p>Los pedidos con su estado de pago y datos de entrega aparecerán acá.</p></div>}
               </section>
             ) : adminTab === 'products' ? (
               <section className="admin-products">
@@ -2002,7 +2451,7 @@ function Storefront() {
                 <div className="cart-summary">
                   <div><span>Subtotal</span><strong>{money.format(cartTotal)}</strong></div>
                   <div><span>Envío estimado</span><strong>{estimatedShipping ? money.format(estimatedShipping) : 'Gratis'}</strong></div>
-                  <small>Pago de demostración: no se realizan cobros reales.</small>
+                  <small>El pago seguro se realiza en Mercado Pago.</small>
                   <button className="button button-dark checkout-button" onClick={startCheckout}>
                     Continuar con mi compra <Icon name="arrow" size={17} />
                   </button>
