@@ -1669,15 +1669,10 @@ function Storefront() {
                 <p>{user.email}</p>
               </div>
             </div>
-            {adminAccessStatus !== 'admin' && (
-              <div className={`admin-access-notice ${adminAccessStatus === 'error' ? 'has-error' : ''}`} role={adminAccessStatus === 'error' ? 'alert' : 'status'}>
-                {adminAccessStatus === 'checking' ? (
-                  <><span className="sync-indicator" aria-hidden="true" />Comprobando acceso de administración…</>
-                ) : adminAccessStatus === 'error' ? (
-                  <><p>{adminAccessError}</p><button type="button" onClick={() => void handleCheckAdminAccess()}>Volver a comprobar</button></>
-                ) : (
-                  <><p>No encontramos permisos de administración para esta cuenta.</p><small>Si esperabas ver el panel, verificá que el rol Admin esté activo en Firebase.</small><button type="button" onClick={() => void handleCheckAdminAccess()}>Volver a comprobar</button></>
-                )}
+            {adminAccessStatus === 'error' && (
+              <div className="admin-access-notice has-error" role="alert">
+                <p>{adminAccessError}</p>
+                <button type="button" onClick={() => void handleCheckAdminAccess()}>Volver a comprobar</button>
               </div>
             )}
             <section className="customer-profile-summary" aria-labelledby="customer-profile-title">
