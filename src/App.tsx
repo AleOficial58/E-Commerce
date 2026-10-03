@@ -19,6 +19,7 @@ import {
   grantAdminAccess,
   loadCustomerOrder,
   loadAdminOrders,
+  syncCustomerPayment,
   updateAdminOrderStatus,
   type AdminOrder,
   type ShippingAddress,
@@ -185,6 +186,23 @@ const emptyCustomerProfile: CustomerProfile = {
   city: '',
   province: '',
   postalCode: '',
+}
+
+function getPaymentReturnParams(): { orderId: string; paymentId: string } {
+  const currentUrl = new URL(window.location.href)
+  const paymentId =
+    currentUrl.searchParams.get('payment_id') ??
+    currentUrl.searchParams.get('collection_id') ??
+    ''
+  const orderId =
+    currentUrl.searchParams.get('order_id') ??
+    currentUrl.searchParams.get('external_reference') ??
+    ''
+  const isPaymentReturn =
+    currentUrl.searchParams.get('payment') === 'return' ||
+    Boolean(paymentId && orderId)
+
+  return isPaymentReturn ? { orderId, paymentId } : { orderId: '', paymentId: '' }
 }
 
 const profileCompletionFields: (keyof CustomerProfile)[] = [
@@ -611,12 +629,8 @@ function Storefront() {
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutError, setCheckoutError] = useState('')
-  const [paymentReturnOrderId, setPaymentReturnOrderId] = useState(() => {
-    const currentUrl = new URL(window.location.href)
-    return currentUrl.searchParams.get('payment') === 'return'
-      ? currentUrl.searchParams.get('order_id') ?? ''
-      : ''
-  })
+  const [paymentReturnOrderId, setPaymentReturnOrderId] = useState(() => getPaymentReturnParams().orderId)
+  const [paymentReturnPaymentId] = useState(() => getPaymentReturnParams().paymentId)
   const [paymentReturnStatus, setPaymentReturnStatus] = useState<
     'checking' | 'approved' | 'pending' | 'failed' | 'review' | 'error'
   >('checking')
@@ -712,9 +726,20 @@ function Storefront() {
   useEffect(() => {
     if (!paymentReturnOrderId || !user) return
     const currentUrl = new URL(window.location.href)
-    if (currentUrl.searchParams.get('payment') !== 'return') return
+    if (
+      currentUrl.searchParams.get('payment') !== 'return' &&
+      !currentUrl.searchParams.has('payment_id') &&
+      !currentUrl.searchParams.has('collection_id')
+    ) return
     currentUrl.searchParams.delete('payment')
     currentUrl.searchParams.delete('order_id')
+    currentUrl.searchParams.delete('payment_id')
+    currentUrl.searchParams.delete('collection_id')
+    currentUrl.searchParams.delete('collection_status')
+    currentUrl.searchParams.delete('external_reference')
+    currentUrl.searchParams.delete('merchant_order_id')
+    currentUrl.searchParams.delete('status')
+    currentUrl.searchParams.delete('payment_type')
     window.history.replaceState(
       window.history.state,
       '',
@@ -729,11 +754,22 @@ function Storefront() {
     let active = true
     let attempts = 0
     let timer = 0
+    let paymentSyncAttempted = false
 
     const checkPaymentStatus = async () => {
       attempts += 1
       try {
-        const result = await loadCustomerOrder(user, paymentReturnOrderId)
+        let result = await loadCustomerOrder(user, paymentReturnOrderId)
+        if (
+          result.order.paymentStatus === 'pending' &&
+          paymentReturnPaymentId &&
+          !paymentSyncAttempted &&
+          /^\d{1,30}$/.test(paymentReturnPaymentId)
+        ) {
+          paymentSyncAttempted = true
+          await syncCustomerPayment(user, paymentReturnOrderId, paymentReturnPaymentId)
+          result = await loadCustomerOrder(user, paymentReturnOrderId)
+        }
         if (!active) return
         const { paymentStatus, status, total } = result.order
         setPaymentReturnTotal(total)
@@ -781,7 +817,7 @@ function Storefront() {
       active = false
       window.clearTimeout(timer)
     }
-  }, [authLoading, paymentRefreshCount, paymentReturnOrderId, user])
+  }, [authLoading, paymentRefreshCount, paymentReturnOrderId, paymentReturnPaymentId, user])
 
   useEffect(() => {
     if (!hasBlockingOverlay) return

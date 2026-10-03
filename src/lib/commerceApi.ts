@@ -120,6 +120,13 @@ export function loadCustomerOrder(user: User, orderId: string): Promise<{ order:
   return apiRequest(user, `/api/orders/${encodeURIComponent(orderId)}`)
 }
 
+export function syncCustomerPayment(user: User, orderId: string, paymentId: string): Promise<{ message: string }> {
+  return apiRequest(user, `/api/orders/${encodeURIComponent(orderId)}/payment-sync`, {
+    method: 'POST',
+    body: { paymentId },
+  })
+}
+
 export async function loadAdminOrders(user: User): Promise<AdminOrder[]> {
   const result = await apiRequest<{ orders: AdminOrder[] }>(user, '/api/admin/orders')
   if (!Array.isArray(result.orders)) throw new Error('El servidor devolvió una lista de pedidos no válida.')
