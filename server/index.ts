@@ -1112,59 +1112,6 @@ app.post('/api/payments/mercadopago/webhook', async (request, response) => {
   }
 })
 
-app.post(
-  '/api/orders/:orderId/payment-sync',
-  requireFirebaseServices,
-  requireUser,
-  async (request, response, next) => {
-    try {
-      const uid = request.authenticatedUser?.uid
-      const orderIdParam = request.params.orderId
-      const orderId = typeof orderIdParam === 'string' ? orderIdParam : ''
-      const paymentId: unknown = request.body?.paymentId
-      if (!uid) throw new ApiError('Iniciá sesión para consultar el pago.', 401)
-      if (!/^[A-Za-z0-9_-]{1,150}$/.test(orderId)) {
-        throw new ApiError('El pedido no es válido.', 400)
-      }
-      if (typeof paymentId !== 'string' || !/^\d{1,30}$/.test(paymentId)) {
-        throw new ApiError('El identificador del pago no es válido.', 400)
-      }
-
-      const orderRef = firestore.doc(`orders/${orderId}`)
-      const order = await orderRef.get()
-      if (!order.exists || order.get('userId') !== uid) {
-        throw new ApiError('No encontramos el pedido asociado a tu cuenta.', 404)
-      }
-      if (order.get('paymentStatus') === 'approved') {
-        response.json({ message: 'El pago ya está confirmado.' })
-        return
-      }
-
-      const payment = await getMercadoPagoPayment(paymentId)
-      const paymentIdMatches = String(payment.id) === paymentId
-      const orderReferenceMatches = payment.external_reference === orderId
-
-      if (!paymentIdMatches || !orderReferenceMatches) {
-        console.warn('No se pudo asociar el pago consultado con el pedido.', {
-          paymentIdMatches,
-          orderReferenceMatches,
-        })
-        throw new ApiError(
-          !orderReferenceMatches
-            ? 'Mercado Pago no asoció este pago con el número de pedido de la tienda.'
-            : 'Mercado Pago devolvió un identificador de pago distinto al consultado.',
-          409,
-        )
-      }
-
-      await settleMercadoPagoPayment(payment)
-      response.json({ message: 'Se consultó el estado confirmado por Mercado Pago.' })
-    } catch (error) {
-      next(error)
-    }
-  },
-)
-
 app.get(
   '/api/orders/:orderId',
   requireFirebaseServices,

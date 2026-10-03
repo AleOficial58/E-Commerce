@@ -24,6 +24,7 @@ export async function getFirebaseServices() {
     : appSdk.initializeApp(firebaseConfig)
 
   return {
+    app,
     auth: authSdk.getAuth(app),
     db: firestoreSdk.getFirestore(app),
     authSdk,

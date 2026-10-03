@@ -17,11 +17,11 @@ import {
   checkAdminAccess,
   createCheckoutPreference,
   grantAdminAccess,
-  loadCustomerOrder,
   loadAdminOrders,
-  syncCustomerPayment,
   updateAdminOrderStatus,
+  watchCustomerOrder,
   type AdminOrder,
+  type CustomerOrderStatus,
   type ShippingAddress,
 } from './lib/commerceApi'
 import {
@@ -188,21 +188,17 @@ const emptyCustomerProfile: CustomerProfile = {
   postalCode: '',
 }
 
-function getPaymentReturnParams(): { orderId: string; paymentId: string } {
+function getPaymentReturnParams(): { orderId: string } {
   const currentUrl = new URL(window.location.href)
-  const paymentId =
-    currentUrl.searchParams.get('payment_id') ??
-    currentUrl.searchParams.get('collection_id') ??
-    ''
   const orderId =
     currentUrl.searchParams.get('order_id') ??
     currentUrl.searchParams.get('external_reference') ??
     ''
   const isPaymentReturn =
     currentUrl.searchParams.get('payment') === 'return' ||
-    Boolean(paymentId && orderId)
+    Boolean(orderId)
 
-  return isPaymentReturn ? { orderId, paymentId } : { orderId: '', paymentId: '' }
+  return isPaymentReturn ? { orderId } : { orderId: '' }
 }
 
 const profileCompletionFields: (keyof CustomerProfile)[] = [
@@ -630,7 +626,6 @@ function Storefront() {
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutError, setCheckoutError] = useState('')
   const [paymentReturnOrderId, setPaymentReturnOrderId] = useState(() => getPaymentReturnParams().orderId)
-  const [paymentReturnPaymentId] = useState(() => getPaymentReturnParams().paymentId)
   const [paymentReturnStatus, setPaymentReturnStatus] = useState<
     'checking' | 'approved' | 'pending' | 'failed' | 'review' | 'error'
   >('checking')
@@ -752,72 +747,68 @@ function Storefront() {
     if (!user || authLoading) return
 
     let active = true
-    let attempts = 0
-    let timer = 0
-    let paymentSyncAttempted = false
+    let unsubscribe = () => {}
 
-    const checkPaymentStatus = async () => {
-      attempts += 1
-      try {
-        let result = await loadCustomerOrder(user, paymentReturnOrderId)
-        if (
-          result.order.paymentStatus === 'pending' &&
-          paymentReturnPaymentId &&
-          !paymentSyncAttempted &&
-          /^\d{1,30}$/.test(paymentReturnPaymentId)
-        ) {
-          paymentSyncAttempted = true
-          await syncCustomerPayment(user, paymentReturnOrderId, paymentReturnPaymentId)
-          result = await loadCustomerOrder(user, paymentReturnOrderId)
-        }
-        if (!active) return
-        const { paymentStatus, status, total } = result.order
-        setPaymentReturnTotal(total)
-        if (paymentStatus === 'approved' && status === 'payment_review') {
-          setPaymentReturnStatus('review')
-          return
-        }
-        if (paymentStatus === 'approved') {
-          if (!clearedPaymentOrderIds.current.has(paymentReturnOrderId)) {
-            clearedPaymentOrderIds.current.add(paymentReturnOrderId)
-            setCart((current) => {
-              const next = { ...current }
-              result.order.items.forEach(({ id, quantity }) => {
-                const remainingQuantity = (next[id] ?? 0) - quantity
-                if (remainingQuantity > 0) next[id] = remainingQuantity
-                else delete next[id]
-              })
-              return next
-            })
-          }
-          setPaymentReturnStatus('approved')
-          return
-        }
-        if (
-          ['rejected', 'cancelled', 'refunded', 'charged_back', 'expired', 'preference_failed'].includes(paymentStatus) ||
-          ['payment_failed', 'payment_expired'].includes(status)
-        ) {
-          setPaymentReturnStatus('failed')
-          return
-        }
-        if (attempts < 12) {
-          timer = window.setTimeout(() => void checkPaymentStatus(), 2500)
-        } else {
-          setPaymentReturnStatus('pending')
-        }
-      } catch (error) {
-        if (!active) return
-        setPaymentReturnMessage(error instanceof Error ? error.message : 'No pudimos consultar el estado del pedido.')
-        setPaymentReturnStatus('error')
+    const handleOrderUpdate = (result: { order: CustomerOrderStatus }) => {
+      if (!active) return
+      setPaymentReturnMessage('')
+      const { paymentStatus, status, total } = result.order
+      setPaymentReturnTotal(total)
+      if (paymentStatus === 'approved' && status === 'payment_review') {
+        setPaymentReturnStatus('review')
+        return
       }
+      if (paymentStatus === 'approved') {
+        if (!clearedPaymentOrderIds.current.has(paymentReturnOrderId)) {
+          clearedPaymentOrderIds.current.add(paymentReturnOrderId)
+          setCart((current) => {
+            const next = { ...current }
+            result.order.items.forEach(({ id, quantity }) => {
+              const remainingQuantity = (next[id] ?? 0) - quantity
+              if (remainingQuantity > 0) next[id] = remainingQuantity
+              else delete next[id]
+            })
+            return next
+          })
+        }
+        setPaymentReturnStatus('approved')
+        return
+      }
+      if (
+        ['rejected', 'cancelled', 'refunded', 'charged_back', 'expired', 'preference_failed'].includes(paymentStatus) ||
+        ['payment_failed', 'payment_expired'].includes(status)
+      ) {
+        setPaymentReturnStatus('failed')
+        return
+      }
+      setPaymentReturnStatus('pending')
     }
 
-    void checkPaymentStatus()
+    void watchCustomerOrder(
+      user,
+      paymentReturnOrderId,
+      handleOrderUpdate,
+      (error) => {
+        if (!active) return
+        console.error('No se pudo recibir la actualización del pedido.', error)
+        setPaymentReturnMessage(error instanceof Error ? error.message : 'No pudimos recibir actualizaciones del pedido.')
+        setPaymentReturnStatus('error')
+      },
+    ).then((stopWatching) => {
+      if (active) unsubscribe = stopWatching
+      else stopWatching()
+    }).catch((error: unknown) => {
+      if (!active) return
+      console.error('No se pudo iniciar la actualización en tiempo real del pedido.', error)
+      setPaymentReturnMessage(error instanceof Error ? error.message : 'No pudimos consultar el estado del pedido.')
+      setPaymentReturnStatus('error')
+    })
+
     return () => {
       active = false
-      window.clearTimeout(timer)
+      unsubscribe()
     }
-  }, [authLoading, paymentRefreshCount, paymentReturnOrderId, paymentReturnPaymentId, user])
+  }, [authLoading, paymentRefreshCount, paymentReturnOrderId, user])
 
   useEffect(() => {
     if (!hasBlockingOverlay) return

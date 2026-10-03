@@ -1,4 +1,5 @@
 import type { User } from 'firebase/auth'
+import { getFirebaseServices } from './firebase'
 
 export type ShippingAddress = {
   name: string
@@ -62,6 +63,62 @@ export async function checkAdminAccess(user: User): Promise<boolean> {
   return result.isAdmin
 }
 
+export async function watchCustomerOrder(
+  user: User,
+  orderId: string,
+  onUpdate: (result: { order: CustomerOrderStatus }) => void,
+  onError: (error: Error) => void,
+): Promise<() => void> {
+  const { app } = await getFirebaseServices()
+  const firestoreSdk = await import('firebase/firestore')
+  const db = firestoreSdk.getFirestore(app)
+
+  return firestoreSdk.onSnapshot(
+    firestoreSdk.doc(db, 'orders', orderId),
+    (snapshot) => {
+      if (!snapshot.exists()) {
+        onError(new Error('No encontramos el pedido asociado a tu cuenta.'))
+        return
+      }
+
+      const data = snapshot.data()
+      if (data.userId !== user.uid) {
+        onError(new Error('No encontramos el pedido asociado a tu cuenta.'))
+        return
+      }
+      if (
+        typeof data.paymentStatus !== 'string' ||
+        typeof data.status !== 'string' ||
+        typeof data.total !== 'number'
+      ) {
+        onError(new Error('El servidor devolvió un estado de pedido no válido.'))
+        return
+      }
+
+      const items = Array.isArray(data.items)
+        ? data.items.flatMap((item: unknown) =>
+            typeof item === 'object' && item !== null &&
+            'id' in item && typeof item.id === 'string' &&
+            'quantity' in item && typeof item.quantity === 'number'
+              ? [{ id: item.id, quantity: item.quantity }]
+              : [],
+          )
+        : []
+
+      onUpdate({
+        order: {
+          id: snapshot.id,
+          paymentStatus: data.paymentStatus,
+          status: data.status,
+          total: data.total,
+          items,
+        },
+      })
+    },
+    onError,
+  )
+}
+
 export function grantAdminAccess(user: User, email: string): Promise<{ message: string }> {
   return apiRequest(user, '/api/admin/users', {
     method: 'POST',
@@ -113,17 +170,6 @@ export function createCheckoutPreference(
   return apiRequest(user, '/api/payments/mercadopago/preference', {
     method: 'POST',
     body: { items, shipping },
-  })
-}
-
-export function loadCustomerOrder(user: User, orderId: string): Promise<{ order: CustomerOrderStatus }> {
-  return apiRequest(user, `/api/orders/${encodeURIComponent(orderId)}`)
-}
-
-export function syncCustomerPayment(user: User, orderId: string, paymentId: string): Promise<{ message: string }> {
-  return apiRequest(user, `/api/orders/${encodeURIComponent(orderId)}/payment-sync`, {
-    method: 'POST',
-    body: { paymentId },
   })
 }
 
