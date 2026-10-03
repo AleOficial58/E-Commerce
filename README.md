@@ -23,7 +23,7 @@ La API de correo necesita además:
 1. En `.env.server`, poné el mismo identificador de proyecto Firebase en `FIREBASE_PROJECT_ID`.
 2. Creá `secrets/` y descargá allí una clave de cuenta de servicio desde **Configuración del proyecto → Cuentas de servicio → Generar nueva clave privada**. Guardala como `lumina-service-account.json`, que está excluida de Git.
 3. Configurá `GOOGLE_APPLICATION_CREDENTIALS=./secrets/lumina-service-account.json`.
-4. Completá `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` y `SMTP_FROM` con las credenciales SMTP de un proveedor de email.
+4. Para desarrollo local, completá `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` y `SMTP_FROM` con las credenciales SMTP de un proveedor de email. El servidor aplica tiempos máximos de conexión y respuesta para que un SMTP inaccesible no deje la solicitud cargando indefinidamente.
 5. Para desarrollo local, dejá `PUBLIC_APP_URL=http://localhost:5173` y abrí la tienda usando esa misma dirección. Para enviar enlaces a clientes, debe ser la URL HTTPS pública donde esté publicada la tienda, y ese dominio debe estar autorizado en Firebase Authentication.
 
 **No compartas ni subas la clave privada JSON ni las credenciales SMTP.** La cuenta de servicio da acceso administrativo al proyecto; mantenela solo en `secrets/` local y configurala como secreto en el servidor al desplegar.
@@ -97,6 +97,8 @@ El archivo [`render.yaml`](./render.yaml) define un único servicio web gratuito
 3. En **Environment → Secret Files**, agregá `lumina-service-account.json` con la clave de cuenta de servicio del proyecto Firebase. El blueprint ya apunta `GOOGLE_APPLICATION_CREDENTIALS` a `/etc/secrets/lumina-service-account.json`. Protegé ese archivo y no lo agregues al repositorio.
 4. Esperá a que termine el deploy y abrí la URL `onrender.com`. En Firebase Authentication, agregá ese dominio en **Authorized domains**. Firestore debe tener publicadas las reglas de [`firestore.rules`](./firestore.rules).
 5. Comprobá `https://TU-SERVICIO.onrender.com/api/health`. La API informa si Firebase Admin y SMTP están configurados, sin revelar credenciales. Firebase Admin permite autenticación de servidor, administración y pedidos de demostración. SMTP es opcional para navegar/probar el resto; sin SMTP no se enviarán correos de verificación ni recuperación.
+
+Para enviar correos desde Render, se puede usar la API HTTPS de Brevo: agregá `BREVO_API_KEY` con una clave API privada y `EMAIL_FROM` con un remitente verificado, por ejemplo `Lúmina <tienda@tudominio.com>`. Al estar configurada, la aplicación elige esta opción antes que SMTP. Guardá la clave solo en Environment de Render, nunca en `VITE_*` ni en Git. El endpoint de salud informa el transporte elegido (`emailTransport`), pero no envía un mensaje de prueba.
 
 La URL pública se detecta desde Render automáticamente. Si más adelante configurás `PUBLIC_APP_URL`, debe ser el origen HTTPS exacto del servicio. El plan gratuito puede suspender el servicio cuando no se usa y tardar en iniciar al volver a abrirlo. No uses este deploy para ventas reales.
 

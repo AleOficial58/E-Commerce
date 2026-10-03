@@ -9,7 +9,13 @@ import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app'
 import { getAuth, type DecodedIdToken } from 'firebase-admin/auth'
 import { FieldValue, getFirestore } from 'firebase-admin/firestore'
 import { products as demoProducts } from '../src/data/products.js'
-import { getActionCodeSettings, isEmailConfigured, sendActionEmail } from './email.js'
+import {
+  EmailDeliveryError,
+  getActionCodeSettings,
+  getEmailTransport,
+  isEmailConfigured,
+  sendActionEmail,
+} from './email.js'
 
 declare global {
   namespace Express {
@@ -238,7 +244,7 @@ function getProductSnapshot(data: Record<string, unknown>, productId: string) {
 
 function requireEmailConfiguration(_request: Request, _response: Response, next: NextFunction) {
   if (!isEmailConfigured()) {
-    next(new ApiError('La API todavía no tiene un servidor SMTP configurado.', 503))
+    next(new ApiError('La API todavía no tiene un proveedor de correo configurado.', 503))
     return
   }
   next()
@@ -284,6 +290,11 @@ function handleError(error: unknown, _request: Request, response: Response, _nex
     return
   }
 
+  if (error instanceof EmailDeliveryError) {
+    response.status(503).json({ error: error.message })
+    return
+  }
+
   const code = errorCode(error)
   if (code === 'auth/user-not-found' || code === 'auth/invalid-email') {
     response.status(202).json({
@@ -294,7 +305,7 @@ function handleError(error: unknown, _request: Request, response: Response, _nex
 
   if (code === 'auth/unauthorized-continue-uri') {
     response.status(503).json({
-      error: 'Firebase no autorizó la URL de la tienda. Agregá localhost en Authentication → Settings → Authorized domains y volvé a intentar.',
+      error: 'Firebase no autorizó el dominio de la tienda. Agregá el dominio actual en Authentication → Settings → Authorized domains y volvé a intentar.',
     })
     return
   }
@@ -322,6 +333,14 @@ function handleError(error: unknown, _request: Request, response: Response, _nex
     return
   }
 
+  if (['ETIMEDOUT', 'ESOCKET', 'ECONNECTION', 'ECONNECTIONTIMEDOUT'].includes(code)) {
+    console.error('Se agotó el tiempo de espera de SMTP.', code)
+    response.status(503).json({
+      error: 'El servidor de correo no respondió a tiempo. En Render, probá la API de Brevo con BREVO_API_KEY en vez de SMTP.',
+    })
+    return
+  }
+
   console.error('Falló una operación de la API de autenticación.', code || 'unknown_error')
   response.status(503).json({
     error: 'No pudimos enviar el correo. Revisá la configuración del servidor e intentá de nuevo.',
@@ -333,6 +352,7 @@ app.get('/api/health', (_request, response) => {
     status: 'ok',
     firebaseAdminConfigured: firebaseConfigured,
     smtpConfigured: isEmailConfigured(),
+    emailTransport: getEmailTransport(),
   })
 })
 

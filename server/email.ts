@@ -3,8 +3,12 @@ import nodemailer, { type Transporter } from 'nodemailer'
 
 export type EmailKind = 'verifyEmail' | 'resetPassword'
 
-const appUrl = new URL(process.env.PUBLIC_APP_URL ?? 'http://localhost:5173')
+const appUrl = new URL(
+  process.env.PUBLIC_APP_URL ?? process.env.RENDER_EXTERNAL_URL ?? 'http://localhost:5173',
+)
 const smtpPort = Number(process.env.SMTP_PORT ?? 587)
+const brevoApiKey = process.env.BREVO_API_KEY
+const configuredSender = process.env.EMAIL_FROM ?? process.env.SMTP_FROM ?? ''
 const smtpConfigured = Boolean(
   process.env.SMTP_HOST &&
     Number.isInteger(smtpPort) &&
@@ -13,8 +17,24 @@ const smtpConfigured = Boolean(
     process.env.SMTP_PASSWORD &&
     process.env.SMTP_FROM,
 )
+const brevoApiConfigured = Boolean(brevoApiKey && parseSender(configuredSender))
 
 let transporter: Transporter | null = null
+
+export class EmailDeliveryError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'EmailDeliveryError'
+  }
+}
+
+function parseSender(sender: string): { name: string; email: string } | null {
+  const formattedSender = sender.match(/^\s*(.*?)\s*<([^<>]+)>\s*$/)
+  const name = formattedSender?.[1]?.trim() ?? 'Lúmina'
+  const email = (formattedSender?.[2] ?? sender).trim()
+  if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) return null
+  return { name: name || 'Lúmina', email }
+}
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => {
@@ -38,6 +58,9 @@ function getTransporter(): Transporter {
       host: process.env.SMTP_HOST,
       port: smtpPort,
       secure: smtpPort === 465,
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 15_000,
       auth: {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASSWORD,
@@ -131,7 +154,13 @@ function getEmailContent(kind: EmailKind, actionUrl: string, displayName?: strin
 }
 
 export function isEmailConfigured(): boolean {
-  return smtpConfigured
+  return brevoApiConfigured || smtpConfigured
+}
+
+export function getEmailTransport(): 'brevo-api' | 'smtp' | 'none' {
+  if (brevoApiConfigured) return 'brevo-api'
+  if (smtpConfigured) return 'smtp'
+  return 'none'
 }
 
 export async function sendActionEmail(
@@ -142,6 +171,42 @@ export async function sendActionEmail(
 ): Promise<void> {
   const actionUrl = createActionUrl(kind, generatedLink)
   const content = getEmailContent(kind, actionUrl, displayName)
+  const sender = parseSender(configuredSender)
+  if (brevoApiConfigured && brevoApiKey && sender) {
+    let response: Response
+    try {
+      response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'api-key': brevoApiKey,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          sender,
+          to: [{ email }],
+          subject: content.subject,
+          textContent: content.text,
+          htmlContent: content.html,
+        }),
+        signal: AbortSignal.timeout(15_000),
+      })
+    } catch (error) {
+      if (error instanceof Error && error.name === 'TimeoutError') {
+        throw new EmailDeliveryError('Brevo tardó demasiado en responder. Esperá un momento e intentá de nuevo.')
+      }
+      throw new EmailDeliveryError('No pudimos conectar con Brevo para enviar el correo.')
+    }
+
+    if (!response.ok) {
+      console.error('Brevo rechazó el envío del correo.', { status: response.status })
+      throw new EmailDeliveryError(
+        'Brevo rechazó el envío. Revisá la clave API y que el remitente esté verificado.',
+      )
+    }
+    return
+  }
+
   await getTransporter().sendMail({
     from: process.env.SMTP_FROM,
     to: email,

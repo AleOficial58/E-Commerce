@@ -5,14 +5,23 @@ async function postEmailRequest(
   payload: Record<string, string>,
   token?: string,
 ): Promise<string> {
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(payload),
-  })
+  let response: Response
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(25_000),
+    })
+  } catch (error) {
+    if (error instanceof Error && error.name === 'TimeoutError') {
+      throw new Error('El envío tardó demasiado. Revisá la conexión e intentá de nuevo.')
+    }
+    throw new Error('No pudimos conectar con el servicio de correo. Intentá de nuevo.')
+  }
   let result: unknown
   try {
     result = await response.json()
