@@ -305,6 +305,9 @@ type MercadoPagoPayment = {
   payment_method_id?: string
   collector_id?: number | string
   application_id?: number | string
+  card?: {
+    last_four_digits?: string
+  }
 }
 
 function getMercadoPagoAccessToken(): string {
@@ -629,8 +632,19 @@ async function settleMercadoPagoPayment(payment: MercadoPagoPayment) {
       transaction.update(orderRef, {
         paymentStatus: 'approved',
         paymentId: String(payment.id),
+        paymentMethodId: payment.payment_method_id ?? null,
+        paymentTypeId: payment.payment_type_id ?? null,
+        paymentCardLastFourDigits:
+          typeof payment.card?.last_four_digits === 'string' &&
+          /^\d{4}$/.test(payment.card.last_four_digits)
+            ? payment.card.last_four_digits
+            : null,
         inventoryHeld: false,
         status: hasInventory ? 'new' : 'payment_review',
+        statusHistory: FieldValue.arrayUnion({
+          status: hasInventory ? 'new' : 'payment_review',
+          at: Timestamp.now(),
+        }),
         updatedAt: FieldValue.serverTimestamp(),
       })
       if (hasInventory) {
@@ -1092,6 +1106,7 @@ app.post(
           paymentMethod: 'mercadopago',
           paymentStatus: 'pending',
           status: 'pending_payment',
+          statusHistory: [{ status: 'pending_payment', at: Timestamp.now() }],
           inventoryHeld: true,
           expiresAt,
           paymentMode: mercadoPagoMode,
@@ -1249,12 +1264,13 @@ app.get(
           if (
             typeof item !== 'object' || item === null ||
             !('name' in item) || typeof item.name !== 'string' ||
+            !('image' in item) || typeof item.image !== 'string' ||
             !('quantity' in item) || typeof item.quantity !== 'number' ||
             !Number.isInteger(item.quantity)
           ) {
             throw new ApiError('Los productos de una compra no son válidos.', 500)
           }
-          return { name: item.name, quantity: item.quantity }
+          return { name: item.name, image: item.image, quantity: item.quantity }
         })
         const createdAt = order.createdAt instanceof Timestamp
           ? order.createdAt.toDate().toISOString()
@@ -1323,6 +1339,16 @@ app.get(
           lineTotal: item.lineTotal,
         }
       })
+      const statusHistory = Array.isArray(orderData.statusHistory)
+        ? orderData.statusHistory.flatMap((event: unknown) => {
+            if (
+              typeof event !== 'object' || event === null ||
+              !('status' in event) || typeof event.status !== 'string' ||
+              !('at' in event) || !(event.at instanceof Timestamp)
+            ) return []
+            return [{ status: event.status, at: event.at.toDate().toISOString() }]
+          })
+        : []
       const shipping = orderData.shipping
       if (
         !('name' in shipping) || typeof shipping.name !== 'string' ||
@@ -1356,6 +1382,17 @@ app.get(
           shippingCost: orderData.shippingCost,
           total: orderData.total,
           createdAt,
+          statusHistory,
+          paymentMethodId: typeof orderData.paymentMethodId === 'string'
+            ? orderData.paymentMethodId
+            : null,
+          paymentTypeId: typeof orderData.paymentTypeId === 'string'
+            ? orderData.paymentTypeId
+            : null,
+          paymentCardLastFourDigits: typeof orderData.paymentCardLastFourDigits === 'string' &&
+            /^\d{4}$/.test(orderData.paymentCardLastFourDigits)
+            ? orderData.paymentCardLastFourDigits
+            : null,
           shipping: shippingAddress,
           items,
         },
@@ -1609,7 +1646,11 @@ app.patch(
       if (order.get('paymentStatus') !== 'approved') {
         throw new ApiError('Solo se pueden gestionar pedidos con el pago acreditado.', 409)
       }
-      await orderRef.update({ status, updatedAt: FieldValue.serverTimestamp() })
+      await orderRef.update({
+        status,
+        statusHistory: FieldValue.arrayUnion({ status, at: Timestamp.now() }),
+        updatedAt: FieldValue.serverTimestamp(),
+      })
       response.json({ message: 'Se actualizó el estado del pedido.' })
     } catch (error) {
       next(error)

@@ -42,7 +42,7 @@ En Firebase Console:
 
 La configuración pública de Firebase que usa la aplicación no reemplaza las reglas de seguridad: aplicá siempre reglas en Firebase y restringí las claves desde la consola cuando corresponda. Las reglas incluidas dejan el catálogo legible, bloquean su escritura desde el cliente y limitan los perfiles a su propio usuario.
 
-En **Mi cuenta → Mis compras**, cada cliente autenticado puede consultar sus últimos 50 pedidos, los productos, el total y el estado actualizado por administración. Esta consulta requiere el índice de Firestore declarado en `firestore.indexes.json`; publicá reglas e índices con `firebase deploy --only firestore`.
+En **Mi cuenta → Mis compras**, cada cliente autenticado puede consultar sus últimos 50 pedidos y abrir el detalle con productos, fotos, fecha y hora, medio de pago disponible y progreso de preparación/envío. Los estados se actualizan desde administración; no hay integración de rastreo en vivo con una empresa de correo. Esta consulta requiere el índice de Firestore declarado en `firestore.indexes.json`; publicá reglas e índices con `firebase deploy --only firestore`.
 
 ## Correos y páginas de acción de Lúmina
 

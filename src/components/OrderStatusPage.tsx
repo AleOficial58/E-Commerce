@@ -9,6 +9,8 @@ type Props = {
   message: string
   onRefresh: () => void
   onBack: () => void
+  backLabel?: string
+  detailMode?: boolean
   money: Intl.NumberFormat
 }
 
@@ -50,6 +52,8 @@ export function OrderStatusPage({
   message,
   onRefresh,
   onBack,
+  backLabel = 'Volver a la tienda',
+  detailMode = false,
   money,
 }: Props) {
   const activeStep = status === 'approved'
@@ -62,8 +66,31 @@ export function OrderStatusPage({
       : 'Esperando confirmación'
   const address = order?.shipping
   const formattedDate = order?.createdAt
-    ? new Intl.DateTimeFormat('es-AR', { dateStyle: 'long' }).format(new Date(order.createdAt))
+    ? new Intl.DateTimeFormat('es-AR', {
+        dateStyle: 'long',
+        timeStyle: 'short',
+      }).format(new Date(order.createdAt))
     : null
+  const paymentMethodName = (() => {
+    switch (order?.paymentMethodId?.toLocaleLowerCase('es-AR')) {
+      case 'master':
+      case 'mastercard':
+        return 'Mastercard'
+      case 'visa':
+      case 'debvisa':
+        return 'Visa'
+      case 'amex':
+        return 'American Express'
+      case 'naranja':
+        return 'Naranja X'
+      case 'cabal':
+        return 'Cabal'
+      case 'maestro':
+        return 'Maestro'
+      default:
+        return order?.paymentMethodId || 'Mercado Pago'
+    }
+  })()
 
   return (
     <main className="order-page">
@@ -71,13 +98,13 @@ export function OrderStatusPage({
         <button className="order-page-brand" type="button" onClick={onBack} aria-label="Volver a la tienda">
           lúmina<span aria-hidden="true">✳</span>
         </button>
-        <span>Estado de tu compra</span>
+        <span>{detailMode ? 'Detalle de tu compra' : 'Estado de tu compra'}</span>
       </header>
       <div className="order-page-content">
         <nav className="order-page-breadcrumb" aria-label="Navegación">
-          <button type="button" onClick={onBack}>Tienda</button>
+          <button type="button" onClick={onBack}>{detailMode ? 'Mis compras' : 'Tienda'}</button>
           <span aria-hidden="true">/</span>
-          <span>Estado de la compra</span>
+          <span>{detailMode ? 'Detalle de compra' : 'Estado de la compra'}</span>
         </nav>
 
         <div className="order-page-grid">
@@ -96,17 +123,29 @@ export function OrderStatusPage({
 
               {status === 'approved' && (
                 <ol className="order-timeline" aria-label="Seguimiento del pedido">
-                  {fulfillmentSteps.map((step, index) => (
-                    <li
-                      key={step.status}
-                      className={index < activeStep ? 'is-complete' : index === activeStep ? 'is-current' : ''}
-                    >
-                      <span className="order-timeline-marker" aria-hidden="true">
-                        {index < activeStep ? '✓' : ''}
-                      </span>
-                      <span>{step.label}</span>
-                    </li>
-                  ))}
+                  {fulfillmentSteps.map((step, index) => {
+                    const statusEvent = order?.statusHistory.find((event) => event.status === step.status)
+                    const eventDate = statusEvent
+                      ? new Intl.DateTimeFormat('es-AR', {
+                          day: '2-digit',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        }).format(new Date(statusEvent.at))
+                      : ''
+                    return (
+                      <li
+                        key={step.status}
+                        className={index < activeStep ? 'is-complete' : index === activeStep ? 'is-current' : ''}
+                      >
+                        <span className="order-timeline-marker" aria-hidden="true">
+                          {index < activeStep ? '✓' : ''}
+                        </span>
+                        <span className="order-timeline-label">{step.label}</span>
+                        {eventDate && <small>{eventDate}</small>}
+                      </li>
+                    )
+                  })}
                 </ol>
               )}
 
@@ -167,6 +206,11 @@ export function OrderStatusPage({
               ) : (
                 <p className="order-loading">La dirección aparecerá cuando podamos consultar el pedido.</p>
               )}
+              {order?.status === 'shipped' && (
+                <p className="order-tracking-note">
+                  Tu pedido fue marcado como enviado por Lúmina. Si recibís un código o enlace de seguimiento del correo, podés usarlo para consultar el recorrido con la empresa de transporte.
+                </p>
+              )}
             </section>
           </div>
 
@@ -176,13 +220,29 @@ export function OrderStatusPage({
               <div><dt>Número de pedido</dt><dd>{order?.id ?? orderId}</dd></div>
               {formattedDate && <div><dt>Fecha</dt><dd>{formattedDate}</dd></div>}
               <div><dt>Estado del pago</dt><dd>{paymentLabel}</dd></div>
+              {order?.paymentStatus === 'approved' && (
+                <div>
+                  <dt>Medio de pago</dt>
+                  <dd>
+                    {paymentMethodName}
+                    {order.paymentCardLastFourDigits
+                      ? ` terminada en ${order.paymentCardLastFourDigits}`
+                      : ''}
+                    {' · Mercado Pago'}
+                  </dd>
+                </div>
+              )}
               {order && <div><dt>Productos</dt><dd>{money.format(order.subtotal)}</dd></div>}
               {order && <div><dt>Envío</dt><dd>{order.shippingCost ? money.format(order.shippingCost) : 'Gratis'}</dd></div>}
               {order && <div className="order-summary-total"><dt>Total</dt><dd>{money.format(order.total)}</dd></div>}
             </dl>
-            <p>El estado del pedido se actualiza cuando recibimos la confirmación de Mercado Pago.</p>
+            <p>
+              {detailMode
+                ? 'El avance se actualiza cuando Lúmina cambia el estado del pedido.'
+                : 'El estado del pedido se actualiza cuando recibimos la confirmación de Mercado Pago.'}
+            </p>
             <button className="button button-dark profile-save-button" type="button" onClick={onBack}>
-              Volver a la tienda
+              {backLabel}
             </button>
           </aside>
         </div>

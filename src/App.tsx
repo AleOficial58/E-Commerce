@@ -17,6 +17,7 @@ import {
   checkAdminAccess,
   createCheckoutPreference,
   CommerceApiError,
+  loadCustomerOrder,
   grantAdminAccess,
   loadAdminOrders,
   loadCustomerOrders,
@@ -654,6 +655,13 @@ function Storefront() {
   const [customerOrdersLoading, setCustomerOrdersLoading] = useState(true)
   const [customerOrdersError, setCustomerOrdersError] = useState('')
   const [customerOrdersRefresh, setCustomerOrdersRefresh] = useState(0)
+  const [selectedCustomerOrderId, setSelectedCustomerOrderId] = useState('')
+  const [selectedCustomerOrder, setSelectedCustomerOrder] = useState<CustomerOrderStatus | null>(null)
+  const [selectedCustomerOrderStatus, setSelectedCustomerOrderStatus] = useState<
+    'checking' | 'approved' | 'pending' | 'failed' | 'review' | 'error'
+  >('checking')
+  const [selectedCustomerOrderMessage, setSelectedCustomerOrderMessage] = useState('')
+  const [selectedCustomerOrderRefresh, setSelectedCustomerOrderRefresh] = useState(0)
   const [isAdmin, setIsAdmin] = useState(false)
   const [adminAccessStatus, setAdminAccessStatus] = useState<'checking' | 'admin' | 'not-admin' | 'error'>('checking')
   const [adminAccessError, setAdminAccessError] = useState('')
@@ -689,7 +697,8 @@ function Storefront() {
   const clearedPaymentOrderIds = useRef<Set<string>>(new Set())
   const hasBlockingOverlay = authOpen || accountOpen || cartOpen || checkoutOpen ||
     profileEditorOpen || adminOpen || productDetailsProduct !== null ||
-    (Boolean(paymentReturnOrderId) && Boolean(user))
+    (Boolean(paymentReturnOrderId) && Boolean(user)) ||
+    (Boolean(selectedCustomerOrderId) && Boolean(user))
 
   useEffect(() => {
     if (mobileSearchOpen) searchInputRef.current?.focus()
@@ -854,6 +863,46 @@ function Storefront() {
       if (timeout !== undefined) window.clearTimeout(timeout)
     }
   }, [accountOpen, customerOrdersRefresh, user])
+
+  useEffect(() => {
+    if (!selectedCustomerOrderId || !user) return
+
+    let active = true
+    let timeout: number | undefined
+    const refreshOrder = async () => {
+      try {
+        const order = await loadCustomerOrder(user, selectedCustomerOrderId)
+        if (!active) return
+        setSelectedCustomerOrder(order)
+        setSelectedCustomerOrderMessage('')
+        if (order.paymentStatus === 'approved') {
+          setSelectedCustomerOrderStatus(order.status === 'payment_review' ? 'review' : 'approved')
+        } else if (
+          ['rejected', 'cancelled', 'refunded', 'charged_back', 'expired', 'preference_failed']
+            .includes(order.paymentStatus) ||
+          ['payment_failed', 'payment_expired'].includes(order.status)
+        ) {
+          setSelectedCustomerOrderStatus('failed')
+        } else {
+          setSelectedCustomerOrderStatus('pending')
+        }
+        timeout = window.setTimeout(() => void refreshOrder(), 15_000)
+      } catch (error) {
+        if (!active) return
+        console.error('No se pudo cargar el detalle de la compra.', error)
+        setSelectedCustomerOrderMessage(
+          error instanceof Error ? error.message : 'No pudimos cargar el detalle de tu compra.',
+        )
+        setSelectedCustomerOrderStatus('error')
+      }
+    }
+
+    void refreshOrder()
+    return () => {
+      active = false
+      if (timeout !== undefined) window.clearTimeout(timeout)
+    }
+  }, [selectedCustomerOrderId, selectedCustomerOrderRefresh, user])
 
   useEffect(() => {
     if (!hasBlockingOverlay) return
@@ -1837,6 +1886,28 @@ function Storefront() {
       />
     )
   }
+  if (selectedCustomerOrderId && user) {
+    return (
+      <OrderStatusPage
+        orderId={selectedCustomerOrderId}
+        order={selectedCustomerOrder?.id === selectedCustomerOrderId ? selectedCustomerOrder : null}
+        status={selectedCustomerOrderStatus}
+        message={selectedCustomerOrderMessage}
+        onRefresh={() => {
+          setSelectedCustomerOrderStatus('checking')
+          setSelectedCustomerOrderMessage('')
+          setSelectedCustomerOrderRefresh((current) => current + 1)
+        }}
+        onBack={() => {
+          setSelectedCustomerOrderId('')
+          setAccountOpen(true)
+        }}
+        backLabel="Volver a mis compras"
+        detailMode
+        money={money}
+      />
+    )
+  }
 
   return (
     <main className="storefront-enter">
@@ -2345,18 +2416,42 @@ function Storefront() {
                             : 'Compra confirmada'
                     return (
                       <article className="account-order-item" key={order.id}>
-                        <div className="account-order-heading">
-                          <strong>Pedido {order.id.slice(0, 8).toLocaleUpperCase('es-AR')}</strong>
-                          <span className={`account-order-status status-${order.status}`}>{statusLabel}</span>
-                        </div>
-                        <p>
-                          {order.createdAt
-                            ? new Intl.DateTimeFormat('es-AR', { dateStyle: 'medium' }).format(new Date(order.createdAt))
-                            : 'Fecha no disponible'}
-                          {' · '}
-                          {order.items.map((item) => `${item.quantity} × ${item.name}`).join(', ')}
-                        </p>
-                        <strong className="account-order-total">{money.format(order.total)}</strong>
+                        <button
+                          className="account-order-open"
+                          type="button"
+                          onClick={() => {
+                            setAccountOpen(false)
+                            setSelectedCustomerOrderId(order.id)
+                            setSelectedCustomerOrderStatus('checking')
+                            setSelectedCustomerOrderMessage('')
+                          }}
+                        >
+                          <div className="account-order-heading">
+                            <strong>Pedido {order.id.slice(0, 8).toLocaleUpperCase('es-AR')}</strong>
+                            <span className={`account-order-status status-${order.status}`}>{statusLabel}</span>
+                          </div>
+                          <div className="account-order-preview">
+                            <div className="account-order-thumbnails">
+                              {order.items.slice(0, 3).map((item, index) => (
+                                <img src={item.image} alt="" key={`${item.name}-${index}`} />
+                              ))}
+                              {order.items.length > 3 && <span>+{order.items.length - 3}</span>}
+                            </div>
+                            <div className="account-order-copy">
+                              <p>
+                                {order.createdAt
+                                  ? new Intl.DateTimeFormat('es-AR', {
+                                      dateStyle: 'medium',
+                                      timeStyle: 'short',
+                                    }).format(new Date(order.createdAt))
+                                  : 'Fecha no disponible'}
+                              </p>
+                              <p>{order.items.map((item) => `${item.quantity} × ${item.name}`).join(', ')}</p>
+                              <strong className="account-order-total">{money.format(order.total)}</strong>
+                            </div>
+                            <Icon name="arrow" size={17} />
+                          </div>
+                        </button>
                       </article>
                     )
                   })}

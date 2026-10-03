@@ -42,6 +42,10 @@ export type CustomerOrderStatus = {
   shippingCost: number
   total: number
   createdAt: string | null
+  statusHistory: { status: string; at: string }[]
+  paymentMethodId: string | null
+  paymentTypeId: string | null
+  paymentCardLastFourDigits: string | null
   shipping: ShippingAddress
   items: {
     id: string
@@ -59,7 +63,7 @@ export type CustomerOrderSummary = {
   status: string
   total: number
   createdAt: string | null
-  items: { name: string; quantity: number }[]
+  items: { name: string; image: string; quantity: number }[]
 }
 
 function isCustomerOrderSummary(value: unknown): value is CustomerOrderSummary {
@@ -73,6 +77,7 @@ function isCustomerOrderSummary(value: unknown): value is CustomerOrderSummary {
     value.items.every((item: unknown) =>
       typeof item === 'object' && item !== null &&
       'name' in item && typeof item.name === 'string' &&
+      'image' in item && typeof item.image === 'string' &&
       'quantity' in item && typeof item.quantity === 'number' && Number.isInteger(item.quantity),
     )
 }
@@ -87,6 +92,11 @@ function isCustomerOrderStatus(value: unknown): value is CustomerOrderStatus {
     !('shippingCost' in value) || typeof value.shippingCost !== 'number' || !Number.isFinite(value.shippingCost) ||
     !('total' in value) || typeof value.total !== 'number' || !Number.isFinite(value.total) ||
     !('createdAt' in value) || (typeof value.createdAt !== 'string' && value.createdAt !== null) ||
+    !('statusHistory' in value) || !Array.isArray(value.statusHistory) ||
+    !('paymentMethodId' in value) || (typeof value.paymentMethodId !== 'string' && value.paymentMethodId !== null) ||
+    !('paymentTypeId' in value) || (typeof value.paymentTypeId !== 'string' && value.paymentTypeId !== null) ||
+    !('paymentCardLastFourDigits' in value) ||
+      (typeof value.paymentCardLastFourDigits !== 'string' && value.paymentCardLastFourDigits !== null) ||
     !('shipping' in value) || typeof value.shipping !== 'object' || value.shipping === null ||
     !('items' in value) || !Array.isArray(value.items)
   ) return false
@@ -101,6 +111,12 @@ function isCustomerOrderStatus(value: unknown): value is CustomerOrderStatus {
     !('province' in shipping) || typeof shipping.province !== 'string' ||
     !('postalCode' in shipping) || typeof shipping.postalCode !== 'string'
   ) return false
+  if (!/^\d{4}$/.test(value.paymentCardLastFourDigits ?? '') && value.paymentCardLastFourDigits !== null) return false
+  if (!value.statusHistory.every((event: unknown) =>
+    typeof event === 'object' && event !== null &&
+    'status' in event && typeof event.status === 'string' &&
+    'at' in event && typeof event.at === 'string',
+  )) return false
 
   return value.items.every((item: unknown) =>
     typeof item === 'object' && item !== null &&
@@ -119,6 +135,17 @@ export async function loadCustomerOrders(user: User): Promise<CustomerOrderSumma
     throw new Error('El servidor devolvió una lista de compras no válida.')
   }
   return result.orders
+}
+
+export async function loadCustomerOrder(user: User, orderId: string): Promise<CustomerOrderStatus> {
+  const result = await apiRequest<unknown>(user, `/api/orders/${encodeURIComponent(orderId)}`)
+  if (
+    typeof result !== 'object' || result === null ||
+    !('order' in result) || !isCustomerOrderStatus(result.order)
+  ) {
+    throw new Error('El servidor devolvió el detalle de compra en un formato no válido.')
+  }
+  return result.order
 }
 
 export type AdminOrder = {
