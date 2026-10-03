@@ -30,6 +30,7 @@ class ApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
+    public readonly code?: string,
   ) {
     super(message)
   }
@@ -191,17 +192,21 @@ function readCheckoutRequest(request: Request) {
       typeof item !== 'object' ||
       item === null ||
       !('productId' in item) ||
+      !('expectedPrice' in item) ||
       !('quantity' in item) ||
       typeof item.productId !== 'string' ||
       !/^[a-z0-9-]{1,80}$/.test(item.productId) ||
+      typeof item.expectedPrice !== 'number' ||
+      !Number.isSafeInteger(item.expectedPrice) ||
+      item.expectedPrice <= 0 ||
       !Number.isInteger(item.quantity) ||
       typeof item.quantity !== 'number' ||
       item.quantity < 1 ||
       item.quantity > 20
     ) {
-      throw new ApiError('El bolso contiene un producto o una cantidad inválida.', 400)
+      throw new ApiError('El bolso contiene un precio o una cantidad inválida. Actualizá la tienda e intentá de nuevo.', 400)
     }
-    return { productId: item.productId, quantity: item.quantity }
+    return { productId: item.productId, expectedPrice: item.expectedPrice, quantity: item.quantity }
   })
   if (new Set(parsedItems.map((item) => item.productId)).size !== parsedItems.length) {
     throw new ApiError('El bolso contiene productos duplicados.', 400)
@@ -258,7 +263,8 @@ function getProductSnapshot(data: Record<string, unknown>, productId: string) {
   const description = typeof data.description === 'string' ? data.description : seed?.description
   const image = typeof data.image === 'string' ? data.image : seed?.image
   const price = typeof data.price === 'number' ? data.price : seed?.price
-  if (!name || !category || !description || !image || typeof price !== 'number' || price <= 0 || price > 1_000_000_000) return null
+  if (!name || !category || !description || !image || typeof price !== 'number' ||
+    !Number.isSafeInteger(price) || price <= 0 || price > 1_000_000_000) return null
   return {
     id: productId,
     name,
@@ -719,7 +725,10 @@ function errorCode(error: unknown): string {
 
 function handleError(error: unknown, _request: Request, response: Response, _next: NextFunction) {
   if (error instanceof ApiError) {
-    response.status(error.status).json({ error: error.message })
+    response.status(error.status).json({
+      error: error.message,
+      ...(error.code ? { code: error.code } : {}),
+    })
     return
   }
 
@@ -987,12 +996,19 @@ app.post(
           Promise.all(productRefs.map((reference) => transaction.get(reference))),
           transaction.get(customerProfileRef),
         ])
-        const lineItems = items.map(({ productId, quantity }, index) => {
+        const lineItems = items.map(({ productId, expectedPrice, quantity }, index) => {
           const snapshot = snapshots[index]
           const data = snapshot?.exists ? snapshot.data() ?? {} : {}
           const product = getProductSnapshot(data, productId)
           if (!product || !product.active) {
             throw new ApiError(`El producto ${productId} ya no está disponible.`, 409)
+          }
+          if (product.price !== expectedPrice) {
+            throw new ApiError(
+              `El precio de ${product.name} no coincide con el catálogo vigente. Actualizá la tienda y revisá el total antes de pagar.`,
+              409,
+              'price_changed',
+            )
           }
           if (!Number.isInteger(product.stock) || product.stock < quantity) {
             throw new ApiError(`${product.name} no tiene stock suficiente.`, 409)

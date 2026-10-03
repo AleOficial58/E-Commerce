@@ -16,6 +16,7 @@ import { products, type Product } from './data/products'
 import {
   checkAdminAccess,
   createCheckoutPreference,
+  CommerceApiError,
   grantAdminAccess,
   loadAdminOrders,
   pollCustomerOrder,
@@ -243,6 +244,9 @@ function readPublishedProduct(id: string, data: Record<string, unknown>): Produc
     typeof data.category !== 'string' ||
     typeof data.description !== 'string' ||
     typeof data.price !== 'number' ||
+    !Number.isSafeInteger(data.price) ||
+    data.price <= 0 ||
+    data.price > 1_000_000_000 ||
     typeof data.image !== 'string'
   ) {
     return null
@@ -1522,7 +1526,11 @@ function Storefront() {
     try {
       const result = await createCheckoutPreference(
         user,
-        cartItems.map(({ product, quantity }) => ({ productId: product.id, quantity })),
+        cartItems.map(({ product, quantity }) => ({
+          productId: product.id,
+          expectedPrice: product.price,
+          quantity,
+        })),
         shipping,
       )
       setCustomerProfile(shipping)
@@ -1531,7 +1539,17 @@ function Storefront() {
       window.location.assign(result.checkoutUrl)
     } catch (error) {
       console.error('No se pudo iniciar el checkout de Mercado Pago.')
-      setCheckoutError(error instanceof Error ? error.message : 'No pudimos registrar el pedido.')
+      if (error instanceof CommerceApiError && error.code === 'price_changed') {
+        try {
+          await refreshCatalog()
+          setCheckoutError(`${error.message} Recargamos los precios; revisá el nuevo total y volvé a intentar.`)
+        } catch (catalogError) {
+          console.error('No se pudo actualizar el catálogo tras detectar un cambio de precio.', catalogError)
+          setCheckoutError('El precio cambió y no pudimos actualizar el catálogo. Recargá la tienda antes de volver a intentar.')
+        }
+      } else {
+        setCheckoutError(error instanceof Error ? error.message : 'No pudimos registrar el pedido.')
+      }
     } finally {
       setCheckoutBusy(false)
     }
@@ -1559,6 +1577,7 @@ function Storefront() {
       !description ||
       !['Accesorios', 'Bijou', 'Bolsos', 'Cabello'].includes(category) ||
       !Number.isFinite(price) ||
+      !Number.isSafeInteger(price) ||
       price <= 0 ||
       price > 1_000_000_000 ||
       !Number.isInteger(stock) ||

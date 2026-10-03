@@ -12,7 +12,18 @@ export type ShippingAddress = {
 
 export type CheckoutLine = {
   productId: string
+  expectedPrice: number
   quantity: number
+}
+
+export class CommerceApiError extends Error {
+  readonly code?: string
+
+  constructor(message: string, code?: string) {
+    super(message)
+    this.name = 'CommerceApiError'
+    this.code = code
+  }
 }
 
 export type CheckoutPreference = {
@@ -203,11 +214,14 @@ async function apiRequest<T>(
   }
 
   if (!response.ok) {
-    const errorMessage =
-      typeof result === 'object' && result !== null && 'error' in result
-        ? String(result.error)
-        : 'No pudimos completar la solicitud.'
-    throw new Error(errorMessage)
+    const errorMessage = typeof result === 'object' && result !== null && 'error' in result
+      ? String(result.error)
+      : 'No pudimos completar la solicitud.'
+    const code = typeof result === 'object' && result !== null && 'code' in result &&
+      typeof result.code === 'string'
+      ? result.code
+      : undefined
+    throw new CommerceApiError(errorMessage, code)
   }
   return result as T
 }
