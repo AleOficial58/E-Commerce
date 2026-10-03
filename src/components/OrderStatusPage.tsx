@@ -1,8 +1,12 @@
+import { useState } from 'react'
+import type { User } from 'firebase/auth'
 import type { CustomerOrderStatus } from '../lib/commerceApi'
+import { OrderMessages } from './OrderMessages'
 
 type PaymentReturnStatus = 'checking' | 'approved' | 'pending' | 'failed' | 'review' | 'error'
 
 type Props = {
+  user: User
   orderId: string
   order: CustomerOrderStatus | null
   status: PaymentReturnStatus
@@ -14,7 +18,26 @@ type Props = {
   money: Intl.NumberFormat
 }
 
-const fulfillmentSteps = [
+const localShipmentSteps = [
+  { status: 'new', label: 'Compra confirmada' },
+  { status: 'preparing', label: 'En preparación' },
+  { status: 'local_transit', label: 'En camino' },
+  { status: 'out_for_delivery', label: 'En reparto' },
+  { status: 'delivered', label: 'Entregada' },
+]
+
+const internationalShipmentSteps = [
+  { status: 'new', label: 'Compra confirmada' },
+  { status: 'preparing', label: 'En preparación' },
+  { status: 'international_transit', label: 'En camino desde el exterior' },
+  { status: 'customs', label: 'En aduana' },
+  { status: 'in_argentina', label: 'En Argentina' },
+  { status: 'local_transit', label: 'En camino a tu domicilio' },
+  { status: 'out_for_delivery', label: 'En reparto' },
+  { status: 'delivered', label: 'Entregada' },
+]
+
+const genericShipmentSteps = [
   { status: 'new', label: 'Compra confirmada' },
   { status: 'preparing', label: 'En preparación' },
   { status: 'shipped', label: 'Enviada' },
@@ -46,6 +69,7 @@ function getStatusMessage(status: PaymentReturnStatus, order: CustomerOrderStatu
 }
 
 export function OrderStatusPage({
+  user,
   orderId,
   order,
   status,
@@ -56,9 +80,23 @@ export function OrderStatusPage({
   detailMode = false,
   money,
 }: Props) {
-  const activeStep = status === 'approved'
-    ? fulfillmentSteps.findIndex((step) => step.status === order?.status)
-    : -1
+  const [messagePrompt, setMessagePrompt] = useState('')
+  const fulfillmentSteps = order?.shipmentType === 'international'
+    ? internationalShipmentSteps
+    : order?.shipmentType === 'local'
+      ? localShipmentSteps
+      : genericShipmentSteps
+  const activeStep = (() => {
+    if (status !== 'approved' || !order) return -1
+    const stage = order.shipmentStage ?? (
+      order.status === 'new' ? 'new'
+        : order.status === 'preparing' ? 'preparing'
+          : order.status === 'shipped'
+            ? order.shipmentType === 'international' ? 'international_transit' : 'local_transit'
+            : order.status === 'delivered' ? 'delivered' : ''
+    )
+    return fulfillmentSteps.findIndex((step) => step.status === stage)
+  })()
   const paymentLabel = order?.paymentStatus === 'approved'
     ? 'Pago acreditado'
     : status === 'failed'
@@ -91,6 +129,13 @@ export function OrderStatusPage({
         return order?.paymentMethodId || 'Mercado Pago'
     }
   })()
+  const paymentTypeName = order?.paymentTypeId === 'credit_card'
+    ? 'Crédito'
+    : order?.paymentTypeId === 'debit_card'
+      ? 'Débito'
+      : order?.paymentTypeId === 'account_money'
+        ? 'Dinero en cuenta'
+        : ''
 
   return (
     <main className="order-page">
@@ -122,31 +167,57 @@ export function OrderStatusPage({
               </div>
 
               {status === 'approved' && (
-                <ol className="order-timeline" aria-label="Seguimiento del pedido">
-                  {fulfillmentSteps.map((step, index) => {
-                    const statusEvent = order?.statusHistory.find((event) => event.status === step.status)
-                    const eventDate = statusEvent
-                      ? new Intl.DateTimeFormat('es-AR', {
-                          day: '2-digit',
-                          month: 'short',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        }).format(new Date(statusEvent.at))
-                      : ''
-                    return (
-                      <li
-                        key={step.status}
-                        className={index < activeStep ? 'is-complete' : index === activeStep ? 'is-current' : ''}
-                      >
-                        <span className="order-timeline-marker" aria-hidden="true">
-                          {index < activeStep ? '✓' : ''}
-                        </span>
-                        <span className="order-timeline-label">{step.label}</span>
-                        {eventDate && <small>{eventDate}</small>}
-                      </li>
-                    )
-                  })}
-                </ol>
+                <>
+                  <section className="order-delivery-estimate" aria-label="Estimación de entrega">
+                    <span className="eyebrow section-eyebrow">ESTIMACIÓN DE ENTREGA</span>
+                    {order?.estimatedDeliveryStart && order.estimatedDeliveryEnd ? (
+                      <>
+                        <h2>
+                          Llega entre el{' '}
+                          {new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long' })
+                            .format(new Date(`${order.estimatedDeliveryStart}T12:00:00`))}
+                          {' y el '}
+                          {new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long' })
+                            .format(new Date(`${order.estimatedDeliveryEnd}T12:00:00`))}
+                        </h2>
+                        <p>El día de la entrega te avisaremos en qué horario vamos a pasar por tu domicilio.</p>
+                      </>
+                    ) : (
+                      <>
+                        <h2>Estamos preparando la estimación</h2>
+                        <p>El plazo aparecerá acá cuando el equipo confirme el tipo de envío y las fechas.</p>
+                      </>
+                    )}
+                  </section>
+                  <ol className={`order-timeline ${order?.shipmentType === 'international' ? 'is-international' : ''}`} aria-label="Seguimiento del pedido">
+                    {fulfillmentSteps.map((step, index) => {
+                      const statusEvent = order?.statusHistory.find((event) => event.status === step.status)
+                      const eventDate = statusEvent
+                        ? new Intl.DateTimeFormat('es-AR', {
+                            day: '2-digit',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          }).format(new Date(statusEvent.at))
+                        : ''
+                      return (
+                        <li
+                          key={step.status}
+                          className={index < activeStep ? 'is-complete' : index === activeStep ? 'is-current' : ''}
+                        >
+                          <span className="order-timeline-marker" aria-hidden="true">
+                            {index < activeStep ? '✓' : ''}
+                          </span>
+                          <span className="order-timeline-label">{step.label}</span>
+                          {eventDate && <small>{eventDate}</small>}
+                          {index === activeStep && order?.shipmentStageDetail && (
+                            <p className="order-timeline-detail">{order.shipmentStageDetail}</p>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ol>
+                </>
               )}
 
               {status === 'review' && (
@@ -207,11 +278,51 @@ export function OrderStatusPage({
                 <p className="order-loading">La dirección aparecerá cuando podamos consultar el pedido.</p>
               )}
               {order?.status === 'shipped' && (
-                <p className="order-tracking-note">
-                  Tu pedido fue marcado como enviado por Lúmina. Si recibís un código o enlace de seguimiento del correo, podés usarlo para consultar el recorrido con la empresa de transporte.
-                </p>
+                <div className="order-tracking-note">
+                  {order.trackingCarrier && <strong>Correo: {order.trackingCarrier}</strong>}
+                  {order.trackingCode && <span>Código de seguimiento: {order.trackingCode}</span>}
+                  {order.trackingUrl && (
+                    <a href={order.trackingUrl} target="_blank" rel="noreferrer">Seguir paquete</a>
+                  )}
+                  {!order.trackingCode && !order.trackingUrl &&
+                    <span>El paquete fue marcado como enviado. El equipo actualizará el seguimiento a medida que haya novedades.</span>}
+                </div>
               )}
             </section>
+            {detailMode && (
+              <section className="order-page-card order-help" aria-labelledby="order-help-title">
+                <h2 id="order-help-title">Ayuda con la compra</h2>
+                <p>Elegí un tema y se abrirá un mensaje para el equipo de Lúmina. La solicitud no cambia automáticamente el pedido.</p>
+                <div className="order-help-actions">
+                  {[
+                    ['Necesito que llegue', 'Hola, necesito consultar si es posible recibir el pedido antes de la fecha estimada.'],
+                    ['Quiero cancelar mi compra', 'Hola, quiero consultar si todavía es posible cancelar esta compra.'],
+                    ['Cambiar la dirección de entrega', 'Hola, necesito consultar si todavía es posible cambiar la dirección de entrega.'],
+                    ['No voy a estar para recibir la compra', 'Hola, no voy a estar disponible para recibir el pedido. ¿Cómo podemos coordinar?'],
+                    ['Necesito ayuda con una devolución', 'Hola, necesito ayuda con una devolución relacionada con esta compra.'],
+                  ].map(([label, prompt]) => (
+                    <button
+                      type="button"
+                      key={label}
+                      onClick={() => {
+                        setMessagePrompt(prompt)
+                        document.getElementById(`order-messages-${orderId}`)?.scrollIntoView({ behavior: 'smooth' })
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+            {detailMode && (
+              <OrderMessages
+                key={`${orderId}-${messagePrompt}`}
+                user={user}
+                orderId={orderId}
+                initialMessage={messagePrompt}
+              />
+            )}
           </div>
 
           <aside className="order-page-card order-purchase-summary">
@@ -228,6 +339,7 @@ export function OrderStatusPage({
                     {order.paymentCardLastFourDigits
                       ? ` terminada en ${order.paymentCardLastFourDigits}`
                       : ''}
+                    {paymentTypeName ? ` · ${paymentTypeName}` : ''}
                     {' · Mercado Pago'}
                   </dd>
                 </div>

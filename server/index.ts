@@ -310,6 +310,17 @@ type MercadoPagoPayment = {
   }
 }
 
+const shipmentTypes = ['local', 'international'] as const
+const shipmentStages = [
+  'preparing',
+  'international_transit',
+  'customs',
+  'in_argentina',
+  'local_transit',
+  'out_for_delivery',
+  'delivered',
+] as const
+
 function getMercadoPagoAccessToken(): string {
   const token = process.env.MERCADO_PAGO_ACCESS_TOKEN?.trim()
   if (!token) throw new ApiError('Los pagos online todavía no están configurados.', 503)
@@ -1281,6 +1292,15 @@ app.get(
           status: order.status,
           total: order.total,
           createdAt,
+          shipmentType: order.shipmentType === 'local' || order.shipmentType === 'international'
+            ? order.shipmentType
+            : null,
+          estimatedDeliveryStart: typeof order.estimatedDeliveryStart === 'string'
+            ? order.estimatedDeliveryStart
+            : null,
+          estimatedDeliveryEnd: typeof order.estimatedDeliveryEnd === 'string'
+            ? order.estimatedDeliveryEnd
+            : null,
           items,
         }
       })
@@ -1393,6 +1413,25 @@ app.get(
             /^\d{4}$/.test(orderData.paymentCardLastFourDigits)
             ? orderData.paymentCardLastFourDigits
             : null,
+          shipmentType: orderData.shipmentType === 'local' || orderData.shipmentType === 'international'
+            ? orderData.shipmentType
+            : null,
+          estimatedDeliveryStart: typeof orderData.estimatedDeliveryStart === 'string'
+            ? orderData.estimatedDeliveryStart
+            : null,
+          estimatedDeliveryEnd: typeof orderData.estimatedDeliveryEnd === 'string'
+            ? orderData.estimatedDeliveryEnd
+            : null,
+          shipmentStage: typeof orderData.shipmentStage === 'string' &&
+            shipmentStages.includes(orderData.shipmentStage as typeof shipmentStages[number])
+            ? orderData.shipmentStage
+            : null,
+          shipmentStageDetail: typeof orderData.shipmentStageDetail === 'string'
+            ? orderData.shipmentStageDetail
+            : null,
+          trackingCarrier: typeof orderData.trackingCarrier === 'string' ? orderData.trackingCarrier : null,
+          trackingCode: typeof orderData.trackingCode === 'string' ? orderData.trackingCode : null,
+          trackingUrl: typeof orderData.trackingUrl === 'string' ? orderData.trackingUrl : null,
           shipping: shippingAddress,
           items,
         },
@@ -1637,8 +1676,13 @@ app.patch(
       const orderId = typeof orderIdParam === 'string' ? orderIdParam : ''
       const status: unknown = request.body?.status
       const allowedStatuses = ['preparing', 'shipped', 'delivered']
-      if (!/^[A-Za-z0-9_-]{1,150}$/.test(orderId) || typeof status !== 'string' || !allowedStatuses.includes(status)) {
-        throw new ApiError('El estado del pedido no es válido.', 400)
+      const hasShipmentUpdate = request.body?.shipmentType !== undefined
+      if (
+        !/^[A-Za-z0-9_-]{1,150}$/.test(orderId) ||
+        (status !== undefined && (typeof status !== 'string' || !allowedStatuses.includes(status))) ||
+        (status === undefined && !hasShipmentUpdate)
+      ) {
+        throw new ApiError('La actualización del pedido no es válida.', 400)
       }
       const orderRef = firestore.doc(`orders/${orderId}`)
       const order = await orderRef.get()
@@ -1646,12 +1690,184 @@ app.patch(
       if (order.get('paymentStatus') !== 'approved') {
         throw new ApiError('Solo se pueden gestionar pedidos con el pago acreditado.', 409)
       }
-      await orderRef.update({
-        status,
-        statusHistory: FieldValue.arrayUnion({ status, at: Timestamp.now() }),
-        updatedAt: FieldValue.serverTimestamp(),
-      })
+      const updates: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() }
+      const historyEvents: { status: string; at: Timestamp; detail?: string }[] = []
+      if (typeof status === 'string') {
+        updates.status = status
+        const stage = status === 'preparing'
+          ? 'preparing'
+          : status === 'delivered'
+            ? 'delivered'
+            : order.get('shipmentType') === 'international'
+              ? 'international_transit'
+              : 'local_transit'
+        updates.shipmentStage = stage
+        updates.shipmentStageDetail = ''
+        historyEvents.push({ status, at: Timestamp.now() }, { status: stage, at: Timestamp.now() })
+      }
+      if (hasShipmentUpdate) {
+        const {
+          shipmentType,
+          estimatedDeliveryStart,
+          estimatedDeliveryEnd,
+          shipmentStage,
+          shipmentStageDetail,
+          trackingCarrier,
+          trackingCode,
+          trackingUrl,
+        } = request.body ?? {}
+        const datePattern = /^\d{4}-\d{2}-\d{2}$/
+        const validDate = (value: unknown) =>
+          typeof value === 'string' &&
+          datePattern.test(value) &&
+          Number.isFinite(Date.parse(`${value}T00:00:00.000Z`)) &&
+          new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value
+        const validStageForShipment = shipmentType === 'international'
+          ? (shipmentStages as readonly unknown[]).includes(shipmentStage)
+          : ['preparing', 'local_transit', 'out_for_delivery', 'delivered'].includes(String(shipmentStage))
+        if (
+          !(shipmentTypes as readonly unknown[]).includes(shipmentType) ||
+          !validStageForShipment ||
+          !validDate(estimatedDeliveryStart) ||
+          !validDate(estimatedDeliveryEnd) ||
+          estimatedDeliveryStart > estimatedDeliveryEnd ||
+          typeof shipmentStageDetail !== 'string' || shipmentStageDetail.length > 240 ||
+          typeof trackingCarrier !== 'string' || trackingCarrier.length > 80 ||
+          typeof trackingCode !== 'string' || trackingCode.length > 80 ||
+          typeof trackingUrl !== 'string' || trackingUrl.length > 500
+        ) {
+          throw new ApiError('Revisá tipo de envío, etapa, fechas y datos de seguimiento.', 400)
+        }
+        if (trackingUrl) {
+          let parsedTrackingUrl: URL
+          try {
+            parsedTrackingUrl = new URL(trackingUrl)
+          } catch {
+            throw new ApiError('El enlace de seguimiento no es válido.', 400)
+          }
+          if (
+            parsedTrackingUrl.protocol !== 'https:' ||
+            parsedTrackingUrl.username ||
+            parsedTrackingUrl.password
+          ) {
+            throw new ApiError('El enlace de seguimiento debe usar HTTPS.', 400)
+          }
+        }
+        updates.shipmentType = shipmentType
+        updates.estimatedDeliveryStart = estimatedDeliveryStart
+        updates.estimatedDeliveryEnd = estimatedDeliveryEnd
+        updates.shipmentStage = shipmentStage
+        updates.shipmentStageDetail = shipmentStageDetail.trim()
+        updates.trackingCarrier = trackingCarrier.trim()
+        updates.trackingCode = trackingCode.trim()
+        updates.trackingUrl = trackingUrl.trim()
+        const fulfillmentStatus = shipmentStage === 'delivered'
+          ? 'delivered'
+          : shipmentStage === 'preparing'
+            ? 'preparing'
+            : 'shipped'
+        updates.status = fulfillmentStatus
+        historyEvents.push(
+          {
+            status: fulfillmentStatus,
+            at: Timestamp.now(),
+          },
+          {
+            status: shipmentStage,
+            detail: shipmentStageDetail.trim(),
+            at: Timestamp.now(),
+          },
+        )
+      }
+      if (historyEvents.length > 0) updates.statusHistory = FieldValue.arrayUnion(...historyEvents)
+      await orderRef.update(updates)
       response.json({ message: 'Se actualizó el estado del pedido.' })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
+
+async function getOrderMessageAccess(request: Request, orderId: string) {
+  const uid = request.authenticatedUser?.uid
+  if (!uid) throw new ApiError('Iniciá sesión para consultar los mensajes.', 401)
+  const orderSnapshot = await firestore.doc(`orders/${orderId}`).get()
+  if (!orderSnapshot.exists) throw new ApiError('No encontramos ese pedido.', 404)
+  const adminSnapshot = await firestore.doc(`admins/${uid}`).get()
+  const isAdmin = (adminSnapshot.exists && adminSnapshot.get('active') === true) ||
+    isBootstrapAdmin(
+      request.authenticatedUser?.email,
+      request.authenticatedUser?.email_verified,
+    )
+  if (!isAdmin && orderSnapshot.get('userId') !== uid) {
+    throw new ApiError('No encontramos ese pedido.', 404)
+  }
+  return { uid, isAdmin, order: orderSnapshot.data() ?? {} }
+}
+
+app.get(
+  '/api/orders/:orderId/messages',
+  requireFirebaseServices,
+  requireUser,
+  async (request, response, next) => {
+    try {
+      const orderId = typeof request.params.orderId === 'string' ? request.params.orderId : ''
+      if (!/^[A-Za-z0-9_-]{1,150}$/.test(orderId)) throw new ApiError('El pedido no es válido.', 400)
+      await getOrderMessageAccess(request, orderId)
+      const snapshot = await firestore.collection(`orders/${orderId}/messages`)
+        .orderBy('createdAt', 'desc')
+        .limit(100)
+        .get()
+      const messages = snapshot.docs.reverse().map((document) => {
+        const data = document.data()
+        if (
+          (data.authorRole !== 'customer' && data.authorRole !== 'admin') ||
+          typeof data.authorName !== 'string' ||
+          typeof data.body !== 'string'
+        ) throw new ApiError('Un mensaje del pedido tiene datos no válidos.', 500)
+        return {
+          id: document.id,
+          authorRole: data.authorRole,
+          authorName: data.authorName,
+          body: data.body,
+          createdAt: data.createdAt instanceof Timestamp
+            ? data.createdAt.toDate().toISOString()
+            : null,
+        }
+      })
+      response.json({ messages })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
+
+app.post(
+  '/api/orders/:orderId/messages',
+  authenticatedActionLimiter,
+  requireFirebaseServices,
+  requireUser,
+  async (request, response, next) => {
+    try {
+      const orderId = typeof request.params.orderId === 'string' ? request.params.orderId : ''
+      if (!/^[A-Za-z0-9_-]{1,150}$/.test(orderId)) throw new ApiError('El pedido no es válido.', 400)
+      const { uid, isAdmin, order } = await getOrderMessageAccess(request, orderId)
+      const body = request.body?.body
+      if (typeof body !== 'string' || !body.trim() || body.trim().length > 2000) {
+        throw new ApiError('El mensaje debe tener entre 1 y 2000 caracteres.', 400)
+      }
+      await firestore.collection(`orders/${orderId}/messages`).add({
+        authorUid: uid,
+        authorRole: isAdmin ? 'admin' : 'customer',
+        authorName: isAdmin
+          ? 'Equipo Lúmina'
+          : typeof order.customerName === 'string'
+            ? order.customerName
+            : 'Cliente',
+        body: body.trim(),
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      response.status(201).json({ message: 'Se envió tu mensaje.' })
     } catch (error) {
       next(error)
     }

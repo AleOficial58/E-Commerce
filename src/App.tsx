@@ -22,8 +22,10 @@ import {
   loadAdminOrders,
   loadCustomerOrders,
   pollCustomerOrder,
+  updateAdminShipment,
   updateAdminOrderStatus,
   type AdminOrder,
+  type AdminShipmentUpdate,
   type CustomerOrderStatus,
   type CustomerOrderSummary,
   type ShippingAddress,
@@ -37,6 +39,7 @@ import {
 } from './lib/reviewsApi'
 import { AuthActionPage } from './components/AuthActionPage'
 import { OrderStatusPage } from './components/OrderStatusPage'
+import { OrderMessages } from './components/OrderMessages'
 import './App.css'
 
 type IconName =
@@ -669,6 +672,8 @@ function Storefront() {
   const [adminTab, setAdminTab] = useState<'orders' | 'products' | 'access'>('orders')
   const [adminOrders, setAdminOrders] = useState<AdminOrder[]>([])
   const [adminLoading, setAdminLoading] = useState(false)
+  const [adminShipmentBusy, setAdminShipmentBusy] = useState('')
+  const [adminMessageThreads, setAdminMessageThreads] = useState<Record<string, boolean>>({})
   const [adminError, setAdminError] = useState('')
   const [adminUserEmail, setAdminUserEmail] = useState('')
   const [adminUserBusy, setAdminUserBusy] = useState(false)
@@ -1781,6 +1786,52 @@ function Storefront() {
     }
   }
 
+  async function handleAdminShipmentSave(event: FormEvent<HTMLFormElement>, orderId: string) {
+    event.preventDefault()
+    if (!user || !isAdmin || adminShipmentBusy) return
+    const formData = new FormData(event.currentTarget)
+    const shipmentType = formData.get('shipmentType')
+    const shipmentStage = formData.get('shipmentStage')
+    if (
+      (shipmentType !== 'local' && shipmentType !== 'international') ||
+      typeof shipmentStage !== 'string' ||
+      ![
+        'preparing',
+        'international_transit',
+        'customs',
+        'in_argentina',
+        'local_transit',
+        'out_for_delivery',
+        'delivered',
+      ].includes(shipmentStage)
+    ) {
+      setAdminError('Seleccioná el tipo de envío y una etapa válida.')
+      return
+    }
+    const shipment: AdminShipmentUpdate = {
+      shipmentType,
+      shipmentStage: shipmentStage as AdminShipmentUpdate['shipmentStage'],
+      estimatedDeliveryStart: String(formData.get('estimatedDeliveryStart') ?? ''),
+      estimatedDeliveryEnd: String(formData.get('estimatedDeliveryEnd') ?? ''),
+      shipmentStageDetail: String(formData.get('shipmentStageDetail') ?? ''),
+      trackingCarrier: String(formData.get('trackingCarrier') ?? ''),
+      trackingCode: String(formData.get('trackingCode') ?? ''),
+      trackingUrl: String(formData.get('trackingUrl') ?? ''),
+    }
+    setAdminShipmentBusy(orderId)
+    setAdminError('')
+    try {
+      await updateAdminShipment(user, orderId, shipment)
+      setAdminOrders(await loadAdminOrders(user))
+      setNotice('Se actualizó el seguimiento y la fecha estimada.')
+    } catch (error) {
+      console.error('No se pudo actualizar el seguimiento del pedido.', error)
+      setAdminError(error instanceof Error ? error.message : 'No se pudo actualizar el seguimiento.')
+    } finally {
+      setAdminShipmentBusy('')
+    }
+  }
+
   async function handleGrantAdminAccess(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!user || !isAdmin || adminUserBusy) return
@@ -1872,6 +1923,7 @@ function Storefront() {
   if (paymentReturnOrderId && user) {
     return (
       <OrderStatusPage
+        user={user}
         orderId={paymentReturnOrderId}
         order={paymentReturnOrder}
         status={paymentReturnStatus}
@@ -1889,6 +1941,7 @@ function Storefront() {
   if (selectedCustomerOrderId && user) {
     return (
       <OrderStatusPage
+        user={user}
         orderId={selectedCustomerOrderId}
         order={selectedCustomerOrder?.id === selectedCustomerOrderId ? selectedCustomerOrder : null}
         status={selectedCustomerOrderStatus}
@@ -2622,9 +2675,58 @@ function Storefront() {
                     <div className="admin-order-customer"><strong>{order.customerName}</strong><span>{order.customerEmail}</span><span>{order.shipping.address}{order.shipping.apartment ? `, ${order.shipping.apartment}` : ''}, {order.shipping.city}, {order.shipping.province} {order.shipping.postalCode}</span></div>
                     <div className="admin-order-items">{order.items.map((item) => <div key={item.id}><span>{item.quantity} × {item.name}</span><strong>{money.format(item.lineTotal)}</strong></div>)}</div>
                     <div className="admin-order-total"><span>{order.paymentStatus === 'approved' ? 'Pago acreditado' : order.paymentStatus === 'pending' ? 'Esperando confirmación de pago' : `Pago: ${order.paymentStatus}`} · envío {order.shippingCost ? money.format(order.shippingCost) : 'gratis'}</span><strong>{money.format(order.total)}</strong></div>
+                    {order.paymentStatus === 'approved' && (
+                      <details className="admin-shipment-editor">
+                        <summary>Configurar envío y seguimiento</summary>
+                        <form onSubmit={(event) => void handleAdminShipmentSave(event, order.id)}>
+                          <label>
+                            Tipo de envío
+                            <select name="shipmentType" defaultValue={order.shipmentType ?? 'local'}>
+                              <option value="local">Local</option>
+                              <option value="international">Internacional</option>
+                            </select>
+                          </label>
+                          <label>
+                            Etapa actual
+                            <select name="shipmentStage" defaultValue={order.shipmentStage ?? (order.status === 'shipped' ? 'local_transit' : order.status === 'delivered' ? 'delivered' : order.status === 'preparing' ? 'preparing' : 'preparing')}>
+                              <option value="preparing">En preparación</option>
+                              <option value="international_transit">En camino desde el exterior</option>
+                              <option value="customs">En aduana</option>
+                              <option value="in_argentina">En Argentina</option>
+                              <option value="local_transit">En camino al domicilio</option>
+                              <option value="out_for_delivery">En reparto</option>
+                              <option value="delivered">Entregada</option>
+                            </select>
+                          </label>
+                          <label>Fecha estimada desde<input name="estimatedDeliveryStart" type="date" defaultValue={order.estimatedDeliveryStart ?? ''} required /></label>
+                          <label>Fecha estimada hasta<input name="estimatedDeliveryEnd" type="date" defaultValue={order.estimatedDeliveryEnd ?? ''} required /></label>
+                          <label className="admin-shipment-full">Novedad visible para el cliente<input name="shipmentStageDetail" defaultValue={order.shipmentStageDetail ?? ''} maxLength={240} placeholder="Ej.: Tu paquete ya salió de aduana." /></label>
+                          <label>Correo / transportista<input name="trackingCarrier" defaultValue={order.trackingCarrier ?? ''} maxLength={80} placeholder="Correo Argentino, Andreani…" /></label>
+                          <label>Código de seguimiento<input name="trackingCode" defaultValue={order.trackingCode ?? ''} maxLength={80} /></label>
+                          <label className="admin-shipment-full">Enlace de seguimiento<input name="trackingUrl" type="url" defaultValue={order.trackingUrl ?? ''} placeholder="https://…" /></label>
+                          <button className="admin-order-action admin-shipment-save" type="submit" disabled={adminShipmentBusy === order.id}>
+                            {adminShipmentBusy === order.id ? 'Guardando…' : 'Guardar seguimiento'}
+                          </button>
+                        </form>
+                      </details>
+                    )}
                     {order.paymentStatus === 'approved' && order.status === 'new' && <button className="admin-order-action" onClick={() => void handleAdminOrderStatus(order.id, 'preparing')}>Preparar pedido <Icon name="arrow" size={15} /></button>}
                     {order.paymentStatus === 'approved' && order.status === 'preparing' && <button className="admin-order-action" onClick={() => void handleAdminOrderStatus(order.id, 'shipped')}>Marcar como enviado <Icon name="arrow" size={15} /></button>}
                     {order.paymentStatus === 'approved' && order.status === 'shipped' && <button className="admin-order-action" onClick={() => void handleAdminOrderStatus(order.id, 'delivered')}>Marcar como entregado <Icon name="check" size={15} /></button>}
+                    {order.paymentStatus === 'approved' && (
+                      <details
+                        className="admin-order-messages"
+                        onToggle={(event) => {
+                          const isOpen = event.currentTarget.open
+                          setAdminMessageThreads((current) => ({ ...current, [order.id]: isOpen }))
+                        }}
+                      >
+                        <summary>Mensajes con el cliente</summary>
+                        {adminMessageThreads[order.id] && (
+                          <OrderMessages user={user} orderId={order.id} isAdmin />
+                        )}
+                      </details>
+                    )}
                   </article>
                 )) : !adminLoading && <div className="admin-empty"><Icon name="bag" size={28} /><h3>Todavía no hay pedidos</h3><p>Los pedidos con su estado de pago y datos de entrega aparecerán acá.</p></div>}
               </section>

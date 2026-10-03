@@ -1,5 +1,15 @@
 import type { User } from 'firebase/auth'
 
+export type ShipmentType = 'local' | 'international'
+export type ShipmentStage =
+  | 'preparing'
+  | 'international_transit'
+  | 'customs'
+  | 'in_argentina'
+  | 'local_transit'
+  | 'out_for_delivery'
+  | 'delivered'
+
 export type ShippingAddress = {
   name: string
   phone: string
@@ -42,10 +52,18 @@ export type CustomerOrderStatus = {
   shippingCost: number
   total: number
   createdAt: string | null
-  statusHistory: { status: string; at: string }[]
+  statusHistory: { status: string; at: string; detail?: string }[]
   paymentMethodId: string | null
   paymentTypeId: string | null
   paymentCardLastFourDigits: string | null
+  shipmentType: ShipmentType | null
+  estimatedDeliveryStart: string | null
+  estimatedDeliveryEnd: string | null
+  shipmentStage: ShipmentStage | null
+  shipmentStageDetail: string | null
+  trackingCarrier: string | null
+  trackingCode: string | null
+  trackingUrl: string | null
   shipping: ShippingAddress
   items: {
     id: string
@@ -63,6 +81,9 @@ export type CustomerOrderSummary = {
   status: string
   total: number
   createdAt: string | null
+  shipmentType: ShipmentType | null
+  estimatedDeliveryStart: string | null
+  estimatedDeliveryEnd: string | null
   items: { name: string; image: string; quantity: number }[]
 }
 
@@ -73,6 +94,9 @@ function isCustomerOrderSummary(value: unknown): value is CustomerOrderSummary {
     'status' in value && typeof value.status === 'string' &&
     'total' in value && typeof value.total === 'number' && Number.isFinite(value.total) &&
     'createdAt' in value && (typeof value.createdAt === 'string' || value.createdAt === null) &&
+    'shipmentType' in value && (value.shipmentType === 'local' || value.shipmentType === 'international' || value.shipmentType === null) &&
+    'estimatedDeliveryStart' in value && (typeof value.estimatedDeliveryStart === 'string' || value.estimatedDeliveryStart === null) &&
+    'estimatedDeliveryEnd' in value && (typeof value.estimatedDeliveryEnd === 'string' || value.estimatedDeliveryEnd === null) &&
     'items' in value && Array.isArray(value.items) &&
     value.items.every((item: unknown) =>
       typeof item === 'object' && item !== null &&
@@ -97,6 +121,14 @@ function isCustomerOrderStatus(value: unknown): value is CustomerOrderStatus {
     !('paymentTypeId' in value) || (typeof value.paymentTypeId !== 'string' && value.paymentTypeId !== null) ||
     !('paymentCardLastFourDigits' in value) ||
       (typeof value.paymentCardLastFourDigits !== 'string' && value.paymentCardLastFourDigits !== null) ||
+    !('shipmentType' in value) || (value.shipmentType !== 'local' && value.shipmentType !== 'international' && value.shipmentType !== null) ||
+    !('estimatedDeliveryStart' in value) || (typeof value.estimatedDeliveryStart !== 'string' && value.estimatedDeliveryStart !== null) ||
+    !('estimatedDeliveryEnd' in value) || (typeof value.estimatedDeliveryEnd !== 'string' && value.estimatedDeliveryEnd !== null) ||
+    !('shipmentStage' in value) || (typeof value.shipmentStage !== 'string' && value.shipmentStage !== null) ||
+    !('shipmentStageDetail' in value) || (typeof value.shipmentStageDetail !== 'string' && value.shipmentStageDetail !== null) ||
+    !('trackingCarrier' in value) || (typeof value.trackingCarrier !== 'string' && value.trackingCarrier !== null) ||
+    !('trackingCode' in value) || (typeof value.trackingCode !== 'string' && value.trackingCode !== null) ||
+    !('trackingUrl' in value) || (typeof value.trackingUrl !== 'string' && value.trackingUrl !== null) ||
     !('shipping' in value) || typeof value.shipping !== 'object' || value.shipping === null ||
     !('items' in value) || !Array.isArray(value.items)
   ) return false
@@ -112,10 +144,23 @@ function isCustomerOrderStatus(value: unknown): value is CustomerOrderStatus {
     !('postalCode' in shipping) || typeof shipping.postalCode !== 'string'
   ) return false
   if (!/^\d{4}$/.test(value.paymentCardLastFourDigits ?? '') && value.paymentCardLastFourDigits !== null) return false
+  if (
+    value.shipmentStage !== null &&
+    ![
+      'preparing',
+      'international_transit',
+      'customs',
+      'in_argentina',
+      'local_transit',
+      'out_for_delivery',
+      'delivered',
+    ].includes(value.shipmentStage)
+  ) return false
   if (!value.statusHistory.every((event: unknown) =>
     typeof event === 'object' && event !== null &&
     'status' in event && typeof event.status === 'string' &&
-    'at' in event && typeof event.at === 'string',
+    'at' in event && typeof event.at === 'string' &&
+    (!('detail' in event) || typeof event.detail === 'string'),
   )) return false
 
   return value.items.every((item: unknown) =>
@@ -170,7 +215,34 @@ export type AdminOrder = {
   paymentStatus: string
   status: string
   paymentMethod?: string
+  shipmentType?: ShipmentType
+  estimatedDeliveryStart?: string
+  estimatedDeliveryEnd?: string
+  shipmentStage?: ShipmentStage
+  shipmentStageDetail?: string
+  trackingCarrier?: string
+  trackingCode?: string
+  trackingUrl?: string
   createdAt?: { _seconds?: number } | null
+}
+
+export type OrderMessage = {
+  id: string
+  authorRole: 'customer' | 'admin'
+  authorName: string
+  body: string
+  createdAt: string | null
+}
+
+export type AdminShipmentUpdate = {
+  shipmentType: ShipmentType
+  estimatedDeliveryStart: string
+  estimatedDeliveryEnd: string
+  shipmentStage: ShipmentStage
+  shipmentStageDetail: string
+  trackingCarrier: string
+  trackingCode: string
+  trackingUrl: string
 }
 
 export async function checkAdminAccess(user: User): Promise<boolean> {
@@ -322,5 +394,43 @@ export function updateAdminOrderStatus(
   return apiRequest(user, `/api/admin/orders/${encodeURIComponent(orderId)}`, {
     method: 'PATCH',
     body: { status },
+  })
+}
+
+export function updateAdminShipment(
+  user: User,
+  orderId: string,
+  shipment: AdminShipmentUpdate,
+): Promise<{ message: string }> {
+  return apiRequest(user, `/api/admin/orders/${encodeURIComponent(orderId)}`, {
+    method: 'PATCH',
+    body: shipment,
+  })
+}
+
+export async function loadOrderMessages(user: User, orderId: string): Promise<OrderMessage[]> {
+  const result = await apiRequest<{ messages: unknown }>(
+    user,
+    `/api/orders/${encodeURIComponent(orderId)}/messages`,
+  )
+  if (!Array.isArray(result.messages) || !result.messages.every((message: unknown) =>
+    typeof message === 'object' && message !== null &&
+    'id' in message && typeof message.id === 'string' &&
+    'authorRole' in message && (message.authorRole === 'customer' || message.authorRole === 'admin') &&
+    'authorName' in message && typeof message.authorName === 'string' &&
+    'body' in message && typeof message.body === 'string' &&
+    'createdAt' in message && (typeof message.createdAt === 'string' || message.createdAt === null),
+  )) throw new Error('El servidor devolvió mensajes en un formato no válido.')
+  return result.messages
+}
+
+export function sendOrderMessage(
+  user: User,
+  orderId: string,
+  body: string,
+): Promise<{ message: string }> {
+  return apiRequest(user, `/api/orders/${encodeURIComponent(orderId)}/messages`, {
+    method: 'POST',
+    body: { body },
   })
 }

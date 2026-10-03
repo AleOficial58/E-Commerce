@@ -2278,6 +2278,66 @@ main {
   border-top: 1px solid #f0e9e6;
 }
 
+.admin-shipment-editor,
+.admin-order-messages {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #eee6e2;
+  background: #fffdfb;
+}
+
+.admin-shipment-editor > summary,
+.admin-order-messages > summary {
+  color: #755968;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.admin-shipment-editor form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 13px;
+}
+
+.admin-shipment-editor label {
+  display: grid;
+  gap: 5px;
+  color: #776a70;
+  font-size: 9px;
+}
+
+.admin-shipment-editor input,
+.admin-shipment-editor select {
+  width: 100%;
+  min-width: 0;
+  min-height: 35px;
+  padding: 7px 8px;
+  border: 1px solid #e6ded9;
+  border-radius: 3px;
+  background: #fff;
+  color: #42383d;
+  font: inherit;
+  font-size: 10px;
+}
+
+.admin-shipment-full,
+.admin-shipment-save {
+  grid-column: 1 / -1;
+}
+
+.admin-shipment-save {
+  width: 100%;
+}
+
+.admin-order-messages .order-messages {
+  margin-top: 14px;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+
 .account-order-open {
   width: 100%;
   padding: 4px;
@@ -2828,6 +2888,34 @@ main {
   line-height: 1.7;
 }
 
+.order-delivery-estimate {
+  margin-top: 24px;
+  padding: 18px 20px;
+  border: 1px solid #f0e5e2;
+  border-radius: 6px;
+  background: linear-gradient(115deg, #fff9f5, #fffdfb);
+}
+
+.order-delivery-estimate .eyebrow {
+  color: #987783;
+  font-size: 9px;
+}
+
+.order-delivery-estimate h2 {
+  margin: 7px 0 0;
+  color: #44363d;
+  font-family: var(--font-heading);
+  font-size: clamp(17px, 2.4vw, 23px);
+  letter-spacing: -.035em;
+}
+
+.order-delivery-estimate p {
+  margin: 7px 0 0;
+  color: #81747a;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
 .order-timeline {
   position: relative;
   display: grid;
@@ -2836,6 +2924,10 @@ main {
   margin: 31px 0 0;
   padding: 0;
   list-style: none;
+}
+
+.order-timeline.is-international {
+  grid-template-columns: repeat(8, minmax(0, 1fr));
 }
 
 .order-timeline li {
@@ -2897,6 +2989,14 @@ main {
   color: #99878d;
   font-size: 8px;
   font-weight: 400;
+}
+
+.order-timeline-detail {
+  margin: -4px 0 0;
+  color: #6d7f6e;
+  font-size: 8px;
+  font-weight: 400;
+  line-height: 1.4;
 }
 
 .order-timeline .is-current .order-timeline-marker {
@@ -3008,6 +3108,8 @@ main {
 }
 
 .order-tracking-note {
+  display: grid;
+  gap: 6px;
   margin: 15px 0 0;
   padding: 11px 12px;
   border-radius: 4px;
@@ -3015,6 +3117,198 @@ main {
   color: #796c70;
   font-size: 9px;
   line-height: 1.6;
+}
+
+.order-tracking-note strong {
+  color: #55474c;
+  font-size: 10px;
+}
+
+.order-tracking-note a {
+  width: fit-content;
+  color: #92677a;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.order-help > p {
+  margin: -6px 0 14px;
+  color: #83777b;
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+.order-help-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.order-help-actions button {
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #eee5e2;
+  border-radius: 4px;
+  background: #fff;
+  color: #765c6a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 9px;
+  text-align: left;
+}
+
+.order-help-actions button:hover {
+  border-color: #d8b9c0;
+  background: #fff9f7;
+}
+
+.order-messages {
+  display: grid;
+  gap: 14px;
+}
+
+.order-messages-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.order-messages-heading h2 {
+  margin-bottom: 5px;
+}
+
+.order-messages-heading p {
+  margin: 0;
+  color: #867a7e;
+  font-size: 9px;
+}
+
+.order-messages-heading > span {
+  color: #d693a3;
+  font-size: 23px;
+}
+
+.order-message-list {
+  display: grid;
+  max-height: 330px;
+  gap: 10px;
+  overflow: auto;
+  padding: 11px;
+  border: 1px solid #f0e9e6;
+  border-radius: 5px;
+  background: #fdfaf8;
+}
+
+.order-message-bubble {
+  width: fit-content;
+  max-width: 88%;
+  padding: 10px 12px;
+  border: 1px solid #eee7e3;
+  border-radius: 8px 8px 8px 2px;
+  background: #fff;
+}
+
+.order-message-bubble.is-mine {
+  justify-self: end;
+  border-color: #f0e0e5;
+  border-radius: 8px 8px 2px 8px;
+  background: #fff5f7;
+}
+
+.order-message-bubble > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.order-message-bubble strong {
+  color: #6a5260;
+  font-size: 9px;
+}
+
+.order-message-bubble time {
+  color: #9a8d92;
+  font-size: 8px;
+}
+
+.order-message-bubble p,
+.order-message-empty {
+  margin: 5px 0 0;
+  color: #645b5f;
+  font-size: 10px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.order-message-form {
+  display: grid;
+  gap: 8px;
+}
+
+.order-message-form textarea {
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+  padding: 10px;
+  border: 1px solid #e6ded9;
+  border-radius: 4px;
+  color: #42383d;
+  font: inherit;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.order-message-form textarea:focus {
+  border-color: #ba8290;
+  outline: 2px solid rgb(186 130 144 / 18%);
+}
+
+.order-message-form > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.order-message-form small {
+  color: #988b90;
+  font-size: 8px;
+}
+
+.order-message-form button {
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 3px;
+  background: #433840;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.order-message-form button:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+.order-message-error {
+  margin: 0;
+  color: #9a5552;
+  font-size: 9px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
 }
 
 .order-purchase-summary {
@@ -3109,8 +3403,16 @@ main {
     padding: 0 0 8px;
   }
 
+  .order-timeline.is-international {
+    grid-template-columns: repeat(8, minmax(92px, 1fr));
+  }
+
   .order-timeline li {
     font-size: 9px;
+  }
+
+  .order-help-actions {
+    grid-template-columns: 1fr;
   }
 
   .order-purchase-summary {

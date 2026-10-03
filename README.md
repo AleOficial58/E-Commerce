@@ -42,7 +42,7 @@ En Firebase Console:
 
 La configuración pública de Firebase que usa la aplicación no reemplaza las reglas de seguridad: aplicá siempre reglas en Firebase y restringí las claves desde la consola cuando corresponda. Las reglas incluidas dejan el catálogo legible, bloquean su escritura desde el cliente y limitan los perfiles a su propio usuario.
 
-En **Mi cuenta → Mis compras**, cada cliente autenticado puede consultar sus últimos 50 pedidos y abrir el detalle con productos, fotos, fecha y hora, medio de pago disponible y progreso de preparación/envío. Los estados se actualizan desde administración; no hay integración de rastreo en vivo con una empresa de correo. Esta consulta requiere el índice de Firestore declarado en `firestore.indexes.json`; publicá reglas e índices con `firebase deploy --only firestore`.
+En **Mi cuenta → Mis compras**, cada cliente autenticado puede consultar sus últimos 50 pedidos y abrir el detalle con productos, fotos, fecha y hora, medio de pago disponible, rango estimado de entrega y progreso local o internacional. Administración configura por pedido el tipo de envío, las fechas, la etapa, una novedad visible y opcionalmente el transportista/código/enlace de seguimiento; la ubicación en vivo depende de la empresa de correo y no está integrada. Cliente y administración pueden intercambiar mensajes asincrónicos asociados al pedido. Las opciones de ayuda crean mensajes para el vendedor y no cancelan compras ni cambian direcciones automáticamente. Esta consulta requiere el índice de Firestore declarado en `firestore.indexes.json`; publicá reglas e índices con `firebase deploy --only firestore`.
 
 ## Correos y páginas de acción de Lúmina
 
@@ -148,6 +148,6 @@ npm run typecheck:api
 ## Próximos pasos
 
 1. Completar pruebas de pagos con credenciales sandbox y usuarios de prueba antes de evaluar una habilitación productiva.
-2. Agregar historial de pedidos para cada cliente y notificaciones de estado.
+2. Integrar notificaciones de mensajería y seguimiento en vivo cuando se defina una plataforma de correo compatible.
 3. Mejorar el panel con filtros, métricas y carga de imágenes cuando exista una solución de almacenamiento aprobada.
 4. Implementar recomendaciones iniciales por categoría y popularidad.
