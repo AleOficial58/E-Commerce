@@ -53,6 +53,30 @@ export type CustomerOrderStatus = {
   }[]
 }
 
+export type CustomerOrderSummary = {
+  id: string
+  paymentStatus: string
+  status: string
+  total: number
+  createdAt: string | null
+  items: { name: string; quantity: number }[]
+}
+
+function isCustomerOrderSummary(value: unknown): value is CustomerOrderSummary {
+  return typeof value === 'object' && value !== null &&
+    'id' in value && typeof value.id === 'string' &&
+    'paymentStatus' in value && typeof value.paymentStatus === 'string' &&
+    'status' in value && typeof value.status === 'string' &&
+    'total' in value && typeof value.total === 'number' && Number.isFinite(value.total) &&
+    'createdAt' in value && (typeof value.createdAt === 'string' || value.createdAt === null) &&
+    'items' in value && Array.isArray(value.items) &&
+    value.items.every((item: unknown) =>
+      typeof item === 'object' && item !== null &&
+      'name' in item && typeof item.name === 'string' &&
+      'quantity' in item && typeof item.quantity === 'number' && Number.isInteger(item.quantity),
+    )
+}
+
 function isCustomerOrderStatus(value: unknown): value is CustomerOrderStatus {
   if (
     typeof value !== 'object' || value === null ||
@@ -87,6 +111,14 @@ function isCustomerOrderStatus(value: unknown): value is CustomerOrderStatus {
     'quantity' in item && typeof item.quantity === 'number' && Number.isInteger(item.quantity) &&
     'lineTotal' in item && typeof item.lineTotal === 'number' && Number.isFinite(item.lineTotal),
   )
+}
+
+export async function loadCustomerOrders(user: User): Promise<CustomerOrderSummary[]> {
+  const result = await apiRequest<{ orders: unknown }>(user, '/api/orders')
+  if (!Array.isArray(result.orders) || !result.orders.every(isCustomerOrderSummary)) {
+    throw new Error('El servidor devolvió una lista de compras no válida.')
+  }
+  return result.orders
 }
 
 export type AdminOrder = {

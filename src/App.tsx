@@ -19,10 +19,12 @@ import {
   CommerceApiError,
   grantAdminAccess,
   loadAdminOrders,
+  loadCustomerOrders,
   pollCustomerOrder,
   updateAdminOrderStatus,
   type AdminOrder,
   type CustomerOrderStatus,
+  type CustomerOrderSummary,
   type ShippingAddress,
 } from './lib/commerceApi'
 import {
@@ -648,6 +650,10 @@ function Storefront() {
   })
   const [authOpen, setAuthOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
+  const [customerOrders, setCustomerOrders] = useState<CustomerOrderSummary[]>([])
+  const [customerOrdersLoading, setCustomerOrdersLoading] = useState(true)
+  const [customerOrdersError, setCustomerOrdersError] = useState('')
+  const [customerOrdersRefresh, setCustomerOrdersRefresh] = useState(0)
   const [isAdmin, setIsAdmin] = useState(false)
   const [adminAccessStatus, setAdminAccessStatus] = useState<'checking' | 'admin' | 'not-admin' | 'error'>('checking')
   const [adminAccessError, setAdminAccessError] = useState('')
@@ -817,6 +823,37 @@ function Storefront() {
       unsubscribe()
     }
   }, [authLoading, paymentRefreshCount, paymentReturnOrderId, paymentReturnPaymentId, user])
+
+  useEffect(() => {
+    if (!accountOpen || !user) return
+
+    let active = true
+    let timeout: number | undefined
+
+    const refreshOrders = async () => {
+      try {
+        const orders = await loadCustomerOrders(user)
+        if (!active) return
+        setCustomerOrders(orders)
+        setCustomerOrdersError('')
+        setCustomerOrdersLoading(false)
+        timeout = window.setTimeout(() => void refreshOrders(), 15_000)
+      } catch (error) {
+        if (!active) return
+        console.error('No se pudieron cargar las compras del cliente.', error)
+        setCustomerOrdersError(
+          error instanceof Error ? error.message : 'No pudimos cargar tus compras.',
+        )
+        setCustomerOrdersLoading(false)
+      }
+    }
+
+    void refreshOrders()
+    return () => {
+      active = false
+      if (timeout !== undefined) window.clearTimeout(timeout)
+    }
+  }, [accountOpen, customerOrdersRefresh, user])
 
   useEffect(() => {
     if (!hasBlockingOverlay) return
@@ -2254,6 +2291,83 @@ function Storefront() {
                 <Icon name="heart" size={19} /><span><strong>Mis favoritos</strong><small>{favoriteProducts.length} {favoriteProducts.length === 1 ? 'pieza guardada' : 'piezas guardadas'}</small></span>
               </div>
             </div>
+            <section className="account-orders" aria-labelledby="account-orders-title">
+              <div className="account-section-heading">
+                <h3 id="account-orders-title">Mis compras</h3>
+                <div className="account-orders-tools">
+                  {customerOrders.length > 0 && <span>{customerOrders.length}</span>}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomerOrdersLoading(true)
+                      setCustomerOrdersError('')
+                      setCustomerOrdersRefresh((current) => current + 1)
+                    }}
+                    disabled={customerOrdersLoading}
+                  >
+                    {customerOrdersLoading ? 'Actualizando…' : 'Actualizar'}
+                  </button>
+                </div>
+              </div>
+              {customerOrdersError ? (
+                <div className="account-orders-empty" role="alert">
+                  <p>{customerOrdersError}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomerOrdersLoading(true)
+                      setCustomerOrdersError('')
+                      setCustomerOrdersRefresh((current) => current + 1)
+                    }}
+                  >
+                    Volver a intentar
+                  </button>
+                </div>
+              ) : customerOrdersLoading && customerOrders.length === 0 ? (
+                <p className="account-orders-empty" role="status">Cargando tus compras…</p>
+              ) : customerOrders.length ? (
+                <div className="account-order-list">
+                  {customerOrders.map((order) => {
+                    const statusLabel = order.paymentStatus !== 'approved'
+                      ? order.status === 'payment_review'
+                        ? 'En revisión'
+                        : order.status === 'payment_failed'
+                          ? 'Pago no completado'
+                          : order.status === 'payment_expired'
+                            ? 'Pago vencido'
+                            : 'Pago pendiente'
+                      : order.status === 'preparing'
+                        ? 'En preparación'
+                        : order.status === 'shipped'
+                          ? 'Enviado'
+                          : order.status === 'delivered'
+                            ? 'Entregado'
+                            : 'Compra confirmada'
+                    return (
+                      <article className="account-order-item" key={order.id}>
+                        <div className="account-order-heading">
+                          <strong>Pedido {order.id.slice(0, 8).toLocaleUpperCase('es-AR')}</strong>
+                          <span className={`account-order-status status-${order.status}`}>{statusLabel}</span>
+                        </div>
+                        <p>
+                          {order.createdAt
+                            ? new Intl.DateTimeFormat('es-AR', { dateStyle: 'medium' }).format(new Date(order.createdAt))
+                            : 'Fecha no disponible'}
+                          {' · '}
+                          {order.items.map((item) => `${item.quantity} × ${item.name}`).join(', ')}
+                        </p>
+                        <strong className="account-order-total">{money.format(order.total)}</strong>
+                      </article>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="account-orders-empty">
+                  <p>Todavía no tenés compras asociadas a esta cuenta.</p>
+                  <small>Cuando completes una compra, vas a poder consultar acá su pago y el avance del pedido.</small>
+                </div>
+              )}
+            </section>
             <section className="account-favorites">
               <div className="account-section-heading">
                 <h3>Guardados para vos</h3>

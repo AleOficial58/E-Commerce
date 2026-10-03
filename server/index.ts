@@ -1222,6 +1222,60 @@ app.post(
 )
 
 app.get(
+  '/api/orders',
+  requireFirebaseServices,
+  requireUser,
+  async (request, response, next) => {
+    try {
+      const uid = request.authenticatedUser?.uid
+      if (!uid) throw new ApiError('Iniciá sesión para consultar tus compras.', 401)
+
+      const snapshot = await firestore.collection('orders')
+        .where('userId', '==', uid)
+        .orderBy('createdAt', 'desc')
+        .limit(50)
+        .get()
+      const orders = snapshot.docs.map((document) => {
+        const order = document.data()
+        if (
+          typeof order.paymentStatus !== 'string' ||
+          typeof order.status !== 'string' ||
+          typeof order.total !== 'number' || !Number.isFinite(order.total) ||
+          !Array.isArray(order.items)
+        ) {
+          throw new ApiError('Los datos de una compra no son válidos.', 500)
+        }
+        const items = order.items.map((item: unknown) => {
+          if (
+            typeof item !== 'object' || item === null ||
+            !('name' in item) || typeof item.name !== 'string' ||
+            !('quantity' in item) || typeof item.quantity !== 'number' ||
+            !Number.isInteger(item.quantity)
+          ) {
+            throw new ApiError('Los productos de una compra no son válidos.', 500)
+          }
+          return { name: item.name, quantity: item.quantity }
+        })
+        const createdAt = order.createdAt instanceof Timestamp
+          ? order.createdAt.toDate().toISOString()
+          : null
+        return {
+          id: document.id,
+          paymentStatus: order.paymentStatus,
+          status: order.status,
+          total: order.total,
+          createdAt,
+          items,
+        }
+      })
+      response.json({ orders })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
+
+app.get(
   '/api/orders/:orderId',
   requireFirebaseServices,
   requireUser,
