@@ -1,0 +1,108 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
+
+:root {
+  font-family: 'DM Sans', sans-serif;
+  color: #302a30;
+  background: #fffdfb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --ink: #302a30;
+  --muted: #827a7e;
+  --pink: #f4c9d4;
+  --peach: #ffe4d8;
+  --cream: #fff8f1;
+  --line: #ede8e4;
+  --purple: #695073;
+  --font-heading: 'Manrope', 'DM Sans', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 0;
+  scroll-behavior: smooth;
+  scroll-padding-top: 96px;
+  scrollbar-color: #cf91a0 #f8e9e8;
+  scrollbar-width: thin;
+}
+
+body {
+  min-width: 0;
+  margin: 0;
+}
+
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f8e9e8;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid #f8e9e8;
+  border-radius: 10px;
+  background: #cf91a0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #ad6f82;
+}
+
+::-webkit-scrollbar-corner {
+  background: #f8e9e8;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  color: inherit;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 2px solid #895f89;
+  outline-offset: 3px;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+::selection {
+  color: var(--ink);
+  background: #f8d8df;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -1,0 +1,153 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true;
+    }
+
+    function validOptionalString(data, field, maxLength) {
+      return !data.keys().hasAny([field])
+        || (data[field] is string && data[field].size() <= maxLength);
+    }
+
+    function validProfile(data) {
+      return data.keys().hasOnly([
+          'name',
+          'email',
+          'createdAt',
+          'updatedAt',
+          'phone',
+          'address',
+          'apartment',
+          'city',
+          'province',
+          'postalCode'
+        ])
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 80
+        && (!data.keys().hasAny(['updatedAt']) || data.updatedAt is timestamp)
+        && validOptionalString(data, 'phone', 30)
+        && validOptionalString(data, 'address', 120)
+        && validOptionalString(data, 'apartment', 60)
+        && validOptionalString(data, 'city', 80)
+        && validOptionalString(data, 'province', 80)
+        && validOptionalString(data, 'postalCode', 20);
+    }
+
+    function validProduct(data, productId) {
+      return data.keys().hasOnly([
+          'id',
+          'name',
+          'category',
+          'description',
+          'price',
+          'originalPrice',
+          'rating',
+          'badge',
+          'image',
+          'imageTone',
+          'stock',
+          'active',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.id == productId
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 100
+        && data.category in ['Accesorios', 'Bijou', 'Bolsos', 'Cabello']
+        && data.description is string
+        && data.description.size() <= 500
+        && data.price is number
+        && data.price > 0
+        && data.price <= 1000000000
+        && (!data.keys().hasAny(['originalPrice'])
+          || (data.originalPrice is number && data.originalPrice > data.price))
+        && (!data.keys().hasAny(['rating'])
+          || (data.rating is string && data.rating.size() <= 10))
+        && (!data.keys().hasAny(['badge'])
+          || (data.badge is string && data.badge.size() <= 40))
+        && data.image is string
+        && data.image.matches('https://.*')
+        && data.imageTone in ['peach', 'lavender', 'butter', 'mint']
+        && data.stock is int
+        && data.stock >= 0
+        && data.stock <= 1000000
+        && data.active is bool
+        && (!data.keys().hasAny(['createdAt']) || data.createdAt is timestamp)
+        && (!data.keys().hasAny(['updatedAt']) || data.updatedAt is timestamp);
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId)
+        && validProfile(request.resource.data)
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.createdAt is timestamp;
+      allow update: if isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name',
+          'updatedAt',
+          'phone',
+          'address',
+          'apartment',
+          'city',
+          'province',
+          'postalCode'
+        ])
+        && request.resource.data.email == resource.data.email
+        && validProfile(request.resource.data);
+      allow delete: if false;
+
+      match /{document=**} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    match /admins/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if false;
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if isAdmin() && validProduct(request.resource.data, productId);
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'id',
+          'name',
+          'category',
+          'description',
+          'price',
+          'originalPrice',
+          'rating',
+          'badge',
+          'image',
+          'imageTone',
+          'stock',
+          'active',
+          'updatedAt'
+        ])
+        && validProduct(request.resource.data, productId);
+      allow delete: if isAdmin();
+    }
+
+    match /orders/{orderId} {
+      allow read: if isAdmin()
+        || (request.auth != null && resource.data.userId == request.auth.uid);
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

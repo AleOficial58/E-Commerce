@@ -1,0 +1,45 @@
+{
+  "name": "e-commerce",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:api": "tsx watch server/index.ts",
+    "dev:full": "concurrently -k -n api,web -c magenta,cyan \"npm:dev:api\" \"npm:dev -- --host 127.0.0.1\"",
+    "start": "tsx server/index.ts",
+    "build": "tsc -b && vite build",
+    "typecheck:api": "tsc -p server/tsconfig.json --noEmit",
+    "lint": "oxlint",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.5",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
+    "firebase": "^12.19.0",
+    "firebase-admin": "^14.5.0",
+    "helmet": "^8.3.0",
+    "nodemailer": "^10.0.13",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "^1.14.5"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.13.3",
+    "@types/nodemailer": "^8.0.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
+    "oxlint": "^1.81.0",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
+  }
+}

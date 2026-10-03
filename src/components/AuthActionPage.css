@@ -1,0 +1,220 @@
+.auth-action-page {
+  min-height: 100svh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  padding:
+    max(20px, env(safe-area-inset-top))
+    max(24px, env(safe-area-inset-right))
+    max(20px, env(safe-area-inset-bottom))
+    max(24px, env(safe-area-inset-left));
+  background:
+    radial-gradient(ellipse at 50% 44%, rgb(248 232 231 / 78%), transparent 49%),
+    #fffaf7;
+}
+
+.auth-action-header,
+.auth-action-footer {
+  width: min(100%, 1120px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 auto;
+}
+
+.action-wordmark {
+  font-family: var(--font-heading);
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -.075em;
+  line-height: 1;
+}
+
+.action-wordmark span {
+  margin-left: 3px;
+  color: #e795aa;
+  font-size: 13px;
+  vertical-align: top;
+}
+
+.auth-action-header > span {
+  color: #9f777f;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .15em;
+}
+
+.auth-action-card {
+  width: min(100%, 470px);
+  align-self: center;
+  justify-self: center;
+  padding: clamp(30px, 6vw, 54px);
+  border: 1px solid #f0e5e0;
+  background: rgb(255 253 251 / 94%);
+  box-shadow: 0 20px 65px rgb(76 54 60 / 8%);
+  text-align: center;
+}
+
+.auth-action-preview {
+  margin: -12px -12px 23px;
+  padding: 9px;
+  background: #fbf0e6;
+  color: #956e53;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .12em;
+}
+
+.auth-action-mark {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 22px;
+  border-radius: 50%;
+  background: #f5e1e2;
+  color: #9c6476;
+  font-family: var(--font-heading);
+  font-size: 25px;
+  font-weight: 600;
+}
+
+.auth-action-mark.is-error {
+  background: #f6e8df;
+  color: #a36d52;
+}
+
+.auth-action-card > .eyebrow {
+  justify-content: center;
+}
+
+.auth-action-card h1 {
+  margin: 12px 0;
+  color: #352d33;
+  font-family: var(--font-heading);
+  font-size: clamp(27px, 6vw, 36px);
+  font-weight: 600;
+  letter-spacing: -.055em;
+  line-height: 1.15;
+}
+
+.auth-action-description,
+.auth-action-error {
+  margin: 0;
+  color: #80767a;
+  font-size: 14px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.auth-action-description strong {
+  color: #51454b;
+  font-weight: 600;
+}
+
+.auth-action-error {
+  color: #9c4f5e;
+}
+
+.auth-action-button {
+  min-width: 190px;
+  margin-top: 25px;
+  font-size: 13px;
+}
+
+.auth-action-button:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+.auth-action-help {
+  margin: 16px 0 0;
+  color: #968b8e;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.auth-action-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin-top: 25px;
+  text-align: left;
+}
+
+.auth-action-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: #574a50;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.auth-action-form input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 12px;
+  border: 1px solid #e9e1dc;
+  border-radius: 2px;
+  background: white;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.auth-action-form input::placeholder {
+  color: #a69da0;
+}
+
+.auth-action-form .auth-action-error {
+  font-size: 12px;
+}
+
+.auth-action-form .auth-action-button {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.auth-action-footer {
+  justify-content: center;
+  color: #95898c;
+  font-size: 10px;
+}
+
+.auth-action-footer b {
+  margin-left: 4px;
+  color: #d58e9e;
+}
+
+@media (max-width: 480px) {
+  .auth-action-page {
+    padding-right: max(18px, env(safe-area-inset-right));
+    padding-left: max(18px, env(safe-area-inset-left));
+  }
+
+  .action-wordmark {
+    font-size: 27px;
+  }
+
+  .auth-action-header > span {
+    font-size: 7px;
+    letter-spacing: .11em;
+  }
+
+  .auth-action-card {
+    padding: 32px 22px;
+  }
+
+  .auth-action-description,
+  .auth-action-error {
+    font-size: 13px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-action-page *,
+  .auth-action-page *::before,
+  .auth-action-page *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}
