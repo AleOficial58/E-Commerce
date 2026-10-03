@@ -107,7 +107,7 @@ function getAuthErrorMessage(error: unknown): string {
     'auth/weak-password': 'La contraseña debe tener al menos 6 caracteres.',
     'auth/network-request-failed': 'No pudimos conectar. Revisá tu conexión.',
     'auth/operation-not-allowed': 'Email y contraseña no están habilitados en Firebase Authentication.',
-    'auth/unauthorized-domain': 'Este dominio no está autorizado en Firebase Authentication. Agregá localhost en Dominios autorizados.',
+    'auth/unauthorized-domain': 'Este dominio no está autorizado en Firebase Authentication. Agregá el dominio actual de la tienda en Dominios autorizados.',
     'auth/too-many-requests': 'Hubo muchos intentos. Esperá un momento y volvé a probar.',
     'auth/user-disabled': 'Esta cuenta está deshabilitada. Contactá con soporte.',
     'auth/user-not-found': 'No encontramos una cuenta con ese email.',
@@ -1412,9 +1412,9 @@ function Storefront() {
                 {adminAccessStatus === 'checking' ? (
                   <><span className="sync-indicator" aria-hidden="true" />Comprobando acceso de administración…</>
                 ) : adminAccessStatus === 'error' ? (
-                  <><span>{adminAccessError}</span><button type="button" onClick={() => void handleCheckAdminAccess()}>Volver a comprobar</button></>
+                  <><p>{adminAccessError}</p><button type="button" onClick={() => void handleCheckAdminAccess()}>Volver a comprobar</button></>
                 ) : (
-                  <><span>Esta cuenta todavía no figura como administradora. El documento <code>admins/{user.uid}</code> debe tener el campo booleano <code>active: true</code>.</span><button type="button" onClick={() => void handleCheckAdminAccess()}>Volver a comprobar</button></>
+                  <><p>No encontramos permisos de administración para esta cuenta.</p><small>Si esperabas ver el panel, verificá que el rol Admin esté activo en Firebase.</small><button type="button" onClick={() => void handleCheckAdminAccess()}>Volver a comprobar</button></>
                 )}
               </div>
             )}
