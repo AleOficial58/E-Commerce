@@ -355,7 +355,7 @@ async function createMercadoPagoPreference(
               }]
             : []),
         ],
-        payer: { email: customerEmail },
+        ...(mercadoPagoMode === 'production' ? { payer: { email: customerEmail } } : {}),
         external_reference: orderId,
         metadata: { order_id: orderId },
         back_urls: {
