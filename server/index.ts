@@ -1063,7 +1063,14 @@ app.post('/api/payments/mercadopago/webhook', async (request, response) => {
   }
   const rawId = request.query['data.id'] ?? request.query.id ?? request.body?.data?.id
   const paymentId = typeof rawId === 'string' || typeof rawId === 'number' ? String(rawId) : ''
-  if (!/^\d{1,30}$/.test(paymentId) || !isValidMercadoPagoSignature(request, paymentId)) {
+  const paymentIdIsValid = /^\d{1,30}$/.test(paymentId)
+  const signatureIsValid = paymentIdIsValid && isValidMercadoPagoSignature(request, paymentId)
+  if (!signatureIsValid) {
+    console.warn('Se rechazó una notificación de Mercado Pago sin una firma válida.', {
+      paymentIdIsValid,
+      hasSignature: Boolean(request.get('x-signature')),
+      hasRequestId: Boolean(request.get('x-request-id')),
+    })
     response.status(401).json({ error: 'La notificación de pago no es válida.' })
     return
   }

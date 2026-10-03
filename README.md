@@ -91,6 +91,8 @@ Mercado Pago ofrece un entorno de pruebas real (sandbox), no hace falta usar una
 4. Iniciá sesión en la tienda con una cuenta de cliente Firebase cuyo email esté verificado, agregá un producto y continuá a Checkout Pro. En Mercado Pago autenticá el usuario comprador de prueba; para tarjetas, usá una [tarjeta de prueba y los datos de titular documentados oficialmente](https://www.mercadopago.com.ar/developers/es/docs/checkout-pro-preferences/integration-test/test-purchases).
 5. Hacé la prueba en una ventana incógnita, como recomienda Mercado Pago. El retorno del navegador no acredita el pedido: confirmá que el webhook actualizó el pedido y el stock desde el panel Admin. Después de la compra acreditada, esa cuenta podrá publicar o editar una única reseña por producto.
 
+La opción de probar la URL de notificaciones en el panel de Mercado Pago puede enviar un ejemplo con un ID ficticio (por ejemplo, `123456`) que no representa un pago real. Si ese ejemplo llega sin una firma válida, la API responde `401` y lo registra en Render; es correcto y no se debe desactivar la verificación de firma para hacer que pase esa prueba. Verificá el flujo completando un pago sandbox: el webhook real debe llevar firma y la tienda también consulta el pago directamente al volver del checkout.
+
 Mientras no estén configurados el token y el secreto sandbox, el checkout devuelve un error explícito y no se genera ningún cobro. El modo productivo sigue bloqueado; no uses credenciales reales para estas pruebas.
 
 ### Habilitar y administrar el panel
