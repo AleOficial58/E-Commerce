@@ -54,6 +54,13 @@ export async function checkAdminAccess(user: User): Promise<boolean> {
   return result.isAdmin
 }
 
+export function grantAdminAccess(user: User, email: string): Promise<{ message: string }> {
+  return apiRequest(user, '/api/admin/users', {
+    method: 'POST',
+    body: { email },
+  })
+}
+
 async function apiRequest<T>(
   user: User,
   endpoint: string,

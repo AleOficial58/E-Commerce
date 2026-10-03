@@ -15,6 +15,7 @@ import {
 import { products, type Product } from './data/products'
 import {
   checkAdminAccess,
+  grantAdminAccess,
   loadAdminOrders,
   submitSimulatedOrder,
   updateAdminOrderStatus,
@@ -91,6 +92,31 @@ const money = new Intl.NumberFormat('es-AR', {
   currency: 'ARS',
   maximumFractionDigits: 0,
 })
+
+const heroSlides = [
+  {
+    image: 'https://images.unsplash.com/photo-1617038220319-276d3cfab638?auto=format&fit=crop&w=1200&q=85',
+    alt: 'Aros dorados y accesorios de la colección Lúmina',
+    caption: 'Pequeños detalles, grandes momentos',
+  },
+  {
+    image: 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=1200&q=85',
+    alt: 'Bolsos de tonos suaves para todos los días',
+    caption: 'Un favorito para llevar a todas partes',
+  },
+  {
+    image: 'https://images.unsplash.com/photo-1590548784585-643d2b9f2925?auto=format&fit=crop&w=1200&q=85',
+    alt: 'Accesorios para crear peinados con personalidad',
+    caption: 'Tu estilo también vive en los detalles',
+  },
+]
+
+const announcementMessages = [
+  'Sitio de prueba · los pedidos no generan cobros reales',
+  'Nuevos detalles para encontrar tu próximo favorito',
+  'Guardá tus favoritos y armá tu bolso a tu ritmo',
+  'Envíos a todo el país con seguimiento en cada paso',
+]
 
 function getErrorCode(error: unknown): string {
   return typeof error === 'object' && error !== null && 'code' in error
@@ -213,10 +239,98 @@ function readPublishedProduct(id: string, data: Record<string, unknown>): Produc
   }
 }
 
+type ProductCardProps = {
+  product: Product
+  isFavorite: boolean
+  disabled: boolean
+  onFavorite: () => void
+  onAdd: () => void
+}
+
+function ProductCard({ product, isFavorite, disabled, onFavorite, onAdd }: ProductCardProps) {
+  return (
+    <article className="product-card">
+      <div className={`product-image image-${product.imageTone}`}>
+        <img src={product.image} alt={product.name} loading="lazy" />
+        {product.badge && <span className={`product-badge ${product.badge === 'Más elegido' ? 'badge-pink' : ''}`}>{product.badge}</span>}
+        <button
+          className={`favorite-button ${isFavorite ? 'is-favorite' : ''}`}
+          onClick={onFavorite}
+          disabled={disabled}
+          aria-label={isFavorite ? `Quitar ${product.name} de favoritos` : `Guardar ${product.name} en favoritos`}
+          aria-pressed={isFavorite}
+        >
+          <Icon name="heart" size={19} />
+        </button>
+        <button className="quick-add" onClick={onAdd} disabled={disabled}>
+          <Icon name="plus" size={17} /> Agregar al bolso
+        </button>
+      </div>
+      <div className="product-info">
+        <div className="product-meta"><span>{product.category}</span><span className="product-rating">★ <b>{product.rating}</b></span></div>
+        <h3>{product.name}</h3>
+        <div className="product-price">
+          <strong>{money.format(product.price)}</strong>
+          {product.originalPrice && <del>{money.format(product.originalPrice)}</del>}
+        </div>
+      </div>
+    </article>
+  )
+}
+
+type ProductRailProps = {
+  id: string
+  title: string
+  description: string
+  products: Product[]
+  favorites: string[]
+  disabled: boolean
+  onFavorite: (productId: string) => void
+  onAdd: (product: Product) => void
+}
+
+function ProductRail({ id, title, description, products: railProducts, favorites, disabled, onFavorite, onAdd }: ProductRailProps) {
+  const railRef = useRef<HTMLDivElement>(null)
+  if (!railProducts.length) return null
+
+  function scrollRail(direction: -1 | 1) {
+    const rail = railRef.current
+    if (!rail) return
+    rail.scrollBy({ left: direction * rail.clientWidth * 0.8, behavior: 'smooth' })
+  }
+
+  return (
+    <section className="product-rail-section section-wrap" aria-labelledby={`${id}-title`}>
+      <header className="product-rail-heading">
+        <div><h2 id={`${id}-title`}>{title}</h2><p>{description}</p></div>
+        <div className="product-rail-controls">
+          <button type="button" onClick={() => scrollRail(-1)} aria-label={`Ver productos anteriores: ${title}`}><Icon name="arrow" size={17} /></button>
+          <button type="button" onClick={() => scrollRail(1)} aria-label={`Ver más productos: ${title}`}><Icon name="arrow" size={17} /></button>
+        </div>
+      </header>
+      <div className="product-rail" ref={railRef}>
+        {railProducts.map((product) => (
+          <ProductCard
+            key={product.id}
+            product={product}
+            isFavorite={favorites.includes(product.id)}
+            disabled={disabled}
+            onFavorite={() => onFavorite(product.id)}
+            onAdd={() => onAdd(product)}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function Storefront() {
   const [activeCategory, setActiveCategory] = useState('Todo')
   const [search, setSearch] = useState('')
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
+  const [heroSlideIndex, setHeroSlideIndex] = useState(0)
+  const [announcementIndex, setAnnouncementIndex] = useState(0)
+  const [announcementPaused, setAnnouncementPaused] = useState(false)
   const [productSort, setProductSort] = useState<ProductSort>('recommended')
   const [saleOnly, setSaleOnly] = useState(false)
   const [favorites, setFavorites] = useState<string[]>(() => readGuestStore().favorites)
@@ -237,10 +351,12 @@ function Storefront() {
   const [adminAccessStatus, setAdminAccessStatus] = useState<'checking' | 'admin' | 'not-admin' | 'error'>('checking')
   const [adminAccessError, setAdminAccessError] = useState('')
   const [adminOpen, setAdminOpen] = useState(false)
-  const [adminTab, setAdminTab] = useState<'orders' | 'products'>('orders')
+  const [adminTab, setAdminTab] = useState<'orders' | 'products' | 'access'>('orders')
   const [adminOrders, setAdminOrders] = useState<AdminOrder[]>([])
   const [adminLoading, setAdminLoading] = useState(false)
   const [adminError, setAdminError] = useState('')
+  const [adminUserEmail, setAdminUserEmail] = useState('')
+  const [adminUserBusy, setAdminUserBusy] = useState(false)
   const [adminProductDraft, setAdminProductDraft] = useState<AdminProductDraft>(emptyAdminProductDraft)
   const [adminProductBusy, setAdminProductBusy] = useState(false)
   const [adminEditingProductId, setAdminEditingProductId] = useState<string | null>(null)
@@ -263,10 +379,51 @@ function Storefront() {
   const searchInputRef = useRef<HTMLInputElement>(null)
   const saveQueue = useRef<Promise<void>>(Promise.resolve())
   const knownAdminOrderIds = useRef<Set<string> | null>(null)
+  const hasBlockingOverlay = authOpen || accountOpen || cartOpen || checkoutOpen ||
+    completedOrder !== null || profileEditorOpen || adminOpen
 
   useEffect(() => {
     if (mobileSearchOpen) searchInputRef.current?.focus()
   }, [mobileSearchOpen])
+
+  useEffect(() => {
+    if (announcementPaused) return
+    const interval = window.setInterval(() => {
+      setAnnouncementIndex((current) => (current + 1) % announcementMessages.length)
+    }, 6500)
+    return () => window.clearInterval(interval)
+  }, [announcementPaused])
+
+  useEffect(() => {
+    if (!hasBlockingOverlay) return
+
+    const scrollY = window.scrollY
+    const root = document.documentElement
+    const body = document.body
+    const previousRootOverflow = root.style.overflow
+    const previousRootScrollBehavior = root.style.scrollBehavior
+    const previousBodyOverflow = body.style.overflow
+    const previousBodyPosition = body.style.position
+    const previousBodyTop = body.style.top
+    const previousBodyWidth = body.style.width
+
+    root.style.overflow = 'hidden'
+    body.style.overflow = 'hidden'
+    body.style.position = 'fixed'
+    body.style.top = `-${scrollY}px`
+    body.style.width = '100%'
+
+    return () => {
+      root.style.overflow = previousRootOverflow
+      body.style.overflow = previousBodyOverflow
+      body.style.position = previousBodyPosition
+      body.style.top = previousBodyTop
+      body.style.width = previousBodyWidth
+      root.style.scrollBehavior = 'auto'
+      window.scrollTo(0, scrollY)
+      root.style.scrollBehavior = previousRootScrollBehavior
+    }
+  }, [hasBlockingOverlay])
 
   async function refreshCatalog() {
     const { db, firestoreSdk } = await getFirebaseServices()
@@ -556,6 +713,35 @@ function Storefront() {
     ),
     [catalog],
   )
+  const activeCatalog = useMemo(
+    () => catalog.filter((product) => product.active !== false),
+    [catalog],
+  )
+  const dealProducts = useMemo(
+    () => activeCatalog
+      .filter((product) => product.originalPrice && product.originalPrice > product.price)
+      .sort((left, right) => {
+        const leftDiscount = left.originalPrice ? (left.originalPrice - left.price) / left.originalPrice : 0
+        const rightDiscount = right.originalPrice ? (right.originalPrice - right.price) / right.originalPrice : 0
+        return rightDiscount - leftDiscount
+      })
+      .slice(0, 10),
+    [activeCatalog],
+  )
+  const personalizedProducts = useMemo(() => {
+    const favoriteCategories = favorites.reduce<Record<string, number>>((counts, productId) => {
+      const favorite = activeCatalog.find((product) => product.id === productId)
+      if (favorite) counts[favorite.category] = (counts[favorite.category] ?? 0) + 1
+      return counts
+    }, {})
+    return activeCatalog
+      .filter((product) => !favorites.includes(product.id))
+      .sort((left, right) =>
+        (favoriteCategories[right.category] ?? 0) - (favoriteCategories[left.category] ?? 0) ||
+        Number(right.rating) - Number(left.rating),
+      )
+      .slice(0, 10)
+  }, [activeCatalog, favorites])
 
   const cartItems = useMemo(
     () =>
@@ -1059,6 +1245,23 @@ function Storefront() {
     }
   }
 
+  async function handleGrantAdminAccess(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!user || !isAdmin || adminUserBusy) return
+    setAdminUserBusy(true)
+    setAdminError('')
+    try {
+      const result = await grantAdminAccess(user, adminUserEmail)
+      setAdminUserEmail('')
+      setNotice(result.message)
+    } catch (error) {
+      console.error('No se pudieron asignar permisos de administración.')
+      setAdminError(error instanceof Error ? error.message : 'No se pudieron asignar permisos de administración.')
+    } finally {
+      setAdminUserBusy(false)
+    }
+  }
+
   async function openAdminPanel() {
     setAdminLoading(true)
     setAdminError('')
@@ -1107,11 +1310,39 @@ function Storefront() {
 
   return (
     <main className="storefront-enter">
-      <div className="announcement">
+      <div
+        className="announcement"
+        role="region"
+        aria-label="Avisos de Lúmina"
+        aria-roledescription="carrusel"
+        onMouseEnter={() => setAnnouncementPaused(true)}
+        onMouseLeave={() => setAnnouncementPaused(false)}
+        onFocusCapture={() => setAnnouncementPaused(true)}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setAnnouncementPaused(false)
+          }
+        }}
+      >
         <Icon name="sparkles" size={15} />
-        <span className="announcement-dev">Versión de desarrollo</span>
-        <span className="announcement-divider">·</span>
-        <span>Compras de prueba, sin cobros reales</span>
+        <p aria-live="polite" aria-atomic="true" key={announcementIndex}>{announcementMessages[announcementIndex]}</p>
+        <div className="announcement-controls">
+          <button
+            type="button"
+            aria-label="Aviso anterior"
+            onClick={() => setAnnouncementIndex((current) => (current + announcementMessages.length - 1) % announcementMessages.length)}
+          >
+            <Icon name="arrow" size={13} />
+          </button>
+          <span>{String(announcementIndex + 1).padStart(2, '0')} / {String(announcementMessages.length).padStart(2, '0')}</span>
+          <button
+            type="button"
+            aria-label="Siguiente aviso"
+            onClick={() => setAnnouncementIndex((current) => (current + 1) % announcementMessages.length)}
+          >
+            <Icon name="arrow" size={13} />
+          </button>
+        </div>
       </div>
 
       <header className="site-header">
@@ -1193,13 +1424,18 @@ function Storefront() {
           </div>
           <span className="hero-scribble" aria-hidden="true">✳</span>
         </div>
-        <div className="hero-visual">
+        <div className="hero-visual" aria-roledescription="carrusel" aria-label="Inspiración Lúmina">
           <img
-            src="https://images.unsplash.com/photo-1617038220319-276d3cfab638?auto=format&fit=crop&w=1200&q=85"
-            alt="Aros dorados y accesorios de la colección Lúmina"
+            src={heroSlides[heroSlideIndex].image}
+            alt={heroSlides[heroSlideIndex].alt}
           />
           <div className="hero-sticker"><span>shine<br />your way</span><b>✳</b></div>
-          <div className="hero-caption"><span>01 / 04</span><span>Pequeños detalles, grandes momentos</span></div>
+          <div className="hero-caption">
+            <button type="button" onClick={() => setHeroSlideIndex((current) => (current + heroSlides.length - 1) % heroSlides.length)} aria-label="Imagen anterior">‹</button>
+            <span>{String(heroSlideIndex + 1).padStart(2, '0')} / {String(heroSlides.length).padStart(2, '0')}</span>
+            <span>{heroSlides[heroSlideIndex].caption}</span>
+            <button type="button" onClick={() => setHeroSlideIndex((current) => (current + 1) % heroSlides.length)} aria-label="Siguiente imagen">›</button>
+          </div>
         </div>
         <span className="hero-side-note">HECHO PARA BRILLAR · DESDE BUENOS AIRES</span>
       </section>
@@ -1209,6 +1445,50 @@ function Storefront() {
         <div><span className="benefit-icon">♡</span><span><strong>Hecho para vos</strong><small>Detalles elegidos con amor</small></span></div>
         <div><span className="benefit-icon">↺</span><span><strong>Cambios fáciles</strong><small>Tenés 30 días para decidir</small></span></div>
       </section>
+
+      <section className="category-discovery section-wrap" aria-labelledby="category-discovery-title">
+        <div className="discovery-heading">
+          <div><span className="eyebrow section-eyebrow">UN UNIVERSO PARA EXPLORAR</span><h2 id="category-discovery-title">¿Qué detalle buscás?</h2></div>
+          <a className="text-link" href="#productos">Ver todo el catálogo <Icon name="arrow" size={15} /></a>
+        </div>
+        <div className="category-discovery-grid">
+          {categories.slice(1).map((category) => {
+            const categoryProduct = activeCatalog.find((product) => product.category === category)
+            return (
+              <button className="category-discovery-card" type="button" key={category} onClick={() => showCategory(category)}>
+                {categoryProduct && <img src={categoryProduct.image} alt="" loading="lazy" />}
+                <span><strong>{category}</strong><small>{categoryCounts[category]} piezas</small></span>
+                <Icon name="arrow" size={17} />
+              </button>
+            )
+          })}
+        </div>
+      </section>
+
+      {!search.trim() && activeCategory === 'Todo' && (
+        <>
+          <ProductRail
+            id="deals"
+            title="Ofertas para aprovechar"
+            description="Piezas elegidas con precios especiales por tiempo limitado."
+            products={dealProducts}
+            favorites={favorites}
+            disabled={storeLoading || authLoading}
+            onFavorite={toggleFavorite}
+            onAdd={addToCart}
+          />
+          <ProductRail
+            id="for-you"
+            title={favorites.length ? 'Elegidos para vos' : 'Los más elegidos'}
+            description={favorites.length ? 'Más ideas según las categorías de tus favoritos.' : 'Los favoritos de la comunidad Lúmina para inspirarte.'}
+            products={personalizedProducts}
+            favorites={favorites}
+            disabled={storeLoading || authLoading}
+            onFavorite={toggleFavorite}
+            onAdd={addToCart}
+          />
+        </>
+      )}
 
       <section className="collection section-wrap" id="productos">
         <div className="section-heading">
@@ -1265,32 +1545,14 @@ function Storefront() {
         {visibleProducts.length ? (
           <div className="product-grid">
             {visibleProducts.map((product) => (
-              <article className="product-card" key={product.id}>
-                <div className={`product-image image-${product.imageTone}`}>
-                  <img src={product.image} alt={product.name} loading="lazy" />
-                  {product.badge && <span className={`product-badge ${product.badge === 'Más elegido' ? 'badge-pink' : ''}`}>{product.badge}</span>}
-                  <button
-                    className={`favorite-button ${favorites.includes(product.id) ? 'is-favorite' : ''}`}
-                    onClick={() => toggleFavorite(product.id)}
-                    disabled={storeLoading || authLoading}
-                    aria-label={favorites.includes(product.id) ? `Quitar ${product.name} de favoritos` : `Guardar ${product.name} en favoritos`}
-                    aria-pressed={favorites.includes(product.id)}
-                  >
-                    <Icon name="heart" size={19} />
-                  </button>
-                  <button className="quick-add" onClick={() => addToCart(product)} disabled={storeLoading || authLoading}>
-                    <Icon name="plus" size={17} /> Agregar al bolso
-                  </button>
-                </div>
-                <div className="product-info">
-                  <div className="product-meta"><span>{product.category}</span><span className="product-rating">★ <b>{product.rating}</b></span></div>
-                  <h3>{product.name}</h3>
-                  <div className="product-price">
-                    <strong>{money.format(product.price)}</strong>
-                    {product.originalPrice && <del>{money.format(product.originalPrice)}</del>}
-                  </div>
-                </div>
-              </article>
+              <ProductCard
+                key={product.id}
+                product={product}
+                isFavorite={favorites.includes(product.id)}
+                disabled={storeLoading || authLoading}
+                onFavorite={() => toggleFavorite(product.id)}
+                onAdd={() => addToCart(product)}
+              />
             ))}
           </div>
         ) : (
@@ -1649,6 +1911,7 @@ function Storefront() {
             <nav className="admin-tabs" aria-label="Secciones de administración">
               <button className={adminTab === 'orders' ? 'active' : ''} onClick={() => setAdminTab('orders')}><Icon name="bag" size={16} /> Pedidos <span>{adminOrders.length}</span></button>
               <button className={adminTab === 'products' ? 'active' : ''} onClick={() => setAdminTab('products')}><Icon name="box" size={16} /> Productos <span>{catalog.filter((product) => product.active !== false).length}</span></button>
+              <button className={adminTab === 'access' ? 'active' : ''} onClick={() => setAdminTab('access')}><Icon name="user" size={16} /> Accesos</button>
             </nav>
             {adminError && <p className="profile-form-error admin-error" role="alert">{adminError}</p>}
             {adminTab === 'orders' ? (
@@ -1672,7 +1935,7 @@ function Storefront() {
                   </article>
                 )) : !adminLoading && <div className="admin-empty"><Icon name="bag" size={28} /><h3>Todavía no hay pedidos</h3><p>Las compras de prueba van a aparecer acá con sus productos, total y datos de entrega.</p></div>}
               </section>
-            ) : (
+            ) : adminTab === 'products' ? (
               <section className="admin-products">
                 <div className="admin-section-heading"><div><h3>{adminEditingProductId ? 'Editar publicación' : 'Publicar un producto'}</h3><p>Usá una imagen pública HTTPS; no se suben archivos a Firebase.</p></div></div>
                 <form className="admin-product-form" onSubmit={(event) => void handleAdminProductSave(event)}>
@@ -1698,6 +1961,31 @@ function Storefront() {
                     </article>
                   ))}
                 </div>
+              </section>
+            ) : (
+              <section className="admin-access">
+                <div className="admin-section-heading">
+                  <div><h3>Administradores</h3><p>Asigná el rol a una cuenta existente y con email verificado.</p></div>
+                </div>
+                <form className="admin-access-form" onSubmit={(event) => void handleGrantAdminAccess(event)}>
+                  <label htmlFor="admin-user-email">Email de la cuenta</label>
+                  <div className="admin-access-controls">
+                    <input
+                      id="admin-user-email"
+                      type="email"
+                      autoComplete="email"
+                      maxLength={254}
+                      placeholder="nombre@correo.com"
+                      value={adminUserEmail}
+                      onChange={(event) => setAdminUserEmail(event.target.value)}
+                      required
+                    />
+                    <button className="button button-dark" type="submit" disabled={adminUserBusy}>
+                      {adminUserBusy ? <><span className="button-spinner" aria-hidden="true" /> Comprobando…</> : 'Dar acceso Admin'}
+                    </button>
+                  </div>
+                  <p>La persona debe haberse registrado y verificar su dirección de email. No se crean cuentas desde este panel.</p>
+                </form>
               </section>
             )}
           </section>

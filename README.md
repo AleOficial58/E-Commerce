@@ -50,14 +50,15 @@ Para revisar el diseño localmente sin enviar correos ni cambiar contraseñas, a
 
 ## Qué está implementado
 
-- Catálogo de ejemplo en `src/data/products.ts`, con búsqueda y filtros por categoría.
+- Catálogo de 40 productos de ejemplo en `src/data/products.ts`, con búsqueda, filtros, carrusel principal, vitrinas horizontales de ofertas y recomendaciones por categorías favoritas.
+- Avisos rotativos en la franja superior, y bloqueo del desplazamiento del fondo mientras haya un diálogo abierto.
 - Favoritos persistidos en el navegador y bolso de compra con cantidades.
 - Registro e inicio de sesión con Firebase Authentication.
 - Envío y reenvío de verificación de email, comprobación del estado y recuperación de contraseña.
 - Correos transaccionales de verificación/restablecimiento con diseño Lúmina, enviados desde la API con Firebase Admin y SMTP.
 - Perfil editable en `users/{userId}` en Firestore, con datos de contacto, domicilio y un indicador visual de completitud.
 - Checkout de demostración: dirección de entrega, resultado aprobado/rechazado sin datos de tarjeta, control de stock y pedido registrado en Firestore.
-- Panel de administración protegido para publicaciones, disponibilidad, stock y seguimiento de pedidos de prueba.
+- Panel de administración protegido para publicaciones, disponibilidad, stock, seguimiento de pedidos de prueba y asignación de rol Admin por email.
 - Favoritos y bolso sincronizados en subcolecciones del usuario autenticado:
   - `users/{userId}/favorites/{productId}`
   - `users/{userId}/cart/{productId}`
@@ -74,29 +75,35 @@ Firestore funciona como backend administrado para autenticación y datos privado
 
 Los pagos de este proyecto son **solo simulaciones**: no se piden ni guardan tarjetas y no se mueve dinero. La API verifica el stock y vuelve a calcular los importes usando el catálogo confiable antes de registrar una compra aprobada en `orders/{orderId}`. El panel consulta esos pedidos y permite actualizar su estado. Las publicaciones se guardan en `products/{productId}` y usan una URL HTTPS de imagen para evitar Storage.
 
-### Habilitar el panel de administración
+### Habilitar y administrar el panel
+
+El primer administrador se habilita desde el servidor; no se puede crear ni cambiar el permiso directamente desde la web o el cliente Firebase. En Render, agregá `ADMIN_EMAILS` en **Environment** con el email verificado de la cuenta inicial. Para más de una cuenta inicial, separá los emails con comas. En local, agregá la misma variable a `.env.server`. Reiniciá o desplegá la API e iniciá sesión nuevamente para que aparezca el botón **Admin**. Al validar el permiso, la API crea también `admins/{uid}` para que las reglas de Firestore apliquen el rol de forma consistente.
+
+Como alternativa, el primer documento puede cargarse manualmente:
 
 1. Iniciá sesión en la tienda con la cuenta que va a administrar el catálogo.
 2. En Firebase Console, abrí **Authentication → Users** y copiá el UID de esa cuenta.
 3. Abrí **Firestore Database → Data**, creá la colección `admins` si todavía no existe y agregá un documento cuyo ID sea exactamente ese UID.
-4. En ese documento agregá el campo `active` de tipo booleano con valor `true`. No se puede crear ni cambiar este permiso desde la web: las reglas rechazan escrituras a `admins`.
+4. En ese documento agregá el campo `active` de tipo booleano con valor `true`.
 5. Publicá las reglas nuevas de [`firestore.rules`](./firestore.rules). Reiniciá la sesión para que aparezca el botón **Admin**.
 
-El permiso lo comprueba la API con Firebase Admin y también lo aplican las reglas de Firestore. Mantené la cuenta de servicio del servidor privada. Los demás usuarios pueden ver productos y crear pedidos de prueba propios, pero no administrar publicaciones ni leer pedidos ajenos.
+Desde **Admin → Accesos**, un administrador puede ingresar el email de otra cuenta existente y verificada para otorgarle el rol. La API verifica la cuenta con Firebase Authentication y escribe `admins/{uid}` usando Firebase Admin; los emails inexistentes, las cuentas sin verificar y las cuentas comunes no pueden usar este endpoint. Las reglas de Firestore siguen rechazando escrituras de clientes a `admins`. Mantené la cuenta de servicio del servidor privada. Los demás usuarios pueden ver productos y crear pedidos de prueba propios, pero no administrar publicaciones ni leer pedidos ajenos.
+
+Los permisos de bootstrap configurados en `ADMIN_EMAILS` son administradores raíz: quitar un email de esa variable no desactiva un documento `admins/{uid}` que ya se haya creado para la cuenta. Para revocar un permiso otorgado desde el panel o Firebase Console, cambiá `active` a `false`; para revocar también un administrador de bootstrap, primero quitá su email de `ADMIN_EMAILS` y luego desactivá su documento.
 
 Los productos nuevos se publican desde el panel con nombre, categoría, descripción, precio, stock y URL de imagen HTTPS. Los productos de ejemplo conservan su catálogo inicial y comienzan con un stock de demostración; al procesar compras, la API lo descuenta de forma atómica. Ocultar un producto lo saca de la tienda sin borrar su historial.
 
 El panel revisa pedidos nuevos mientras está abierto y muestra el cliente, la entrega, los artículos, los totales y el estado. Al cerrar o recargar el panel, los pedidos siguen guardados en Firestore.
 
-## Probar en Render (versión de desarrollo)
+## Probar en Render (versión de prueba)
 
-El archivo [`render.yaml`](./render.yaml) define un único servicio web gratuito para pruebas. Render instala las dependencias, compila React y arranca Express; Express sirve `dist/` y la API `/api` desde el mismo dominio. La tienda muestra un aviso de **versión de desarrollo** y los pagos siguen siendo simulados: no se cobran ni almacenan tarjetas.
+El archivo [`render.yaml`](./render.yaml) define un único servicio web gratuito para pruebas. Render instala las dependencias, compila React y arranca Express; Express sirve `dist/` y la API `/api` desde el mismo dominio. La franja superior rota avisos del entorno de prueba y los pagos siguen siendo simulados: no se cobran ni almacenan tarjetas.
 
 1. Subí este proyecto a un repositorio privado de GitHub y conectalo desde Render con **New → Blueprint**.
-2. Render va a pedir las variables Firebase marcadas como `sync: false`. Obtené las `VITE_FIREBASE_*` de la configuración de tu aplicación web en Firebase; `FIREBASE_PROJECT_ID` debe ser el ID del mismo proyecto. Estos valores `VITE_*` son configuración pública de cliente y quedan incluidos en el frontend; nunca pongas allí credenciales privadas.
+2. Render va a pedir las variables Firebase marcadas como `sync: false`. Obtené las `VITE_FIREBASE_*` de la configuración de tu aplicación web en Firebase; `FIREBASE_PROJECT_ID` debe ser el ID del mismo proyecto. `ADMIN_EMAILS` es opcional si ya existe un documento Admin en Firestore; si no, completalo con el email verificado del primer administrador (separá varias cuentas con comas). Estos valores `VITE_*` son configuración pública de cliente y quedan incluidos en el frontend; nunca pongas allí credenciales privadas.
 3. En **Environment → Secret Files**, agregá `lumina-service-account.json` con la clave de cuenta de servicio del proyecto Firebase. El blueprint ya apunta `GOOGLE_APPLICATION_CREDENTIALS` a `/etc/secrets/lumina-service-account.json`. Protegé ese archivo y no lo agregues al repositorio.
 4. Esperá a que termine el deploy y abrí la URL `onrender.com`. En Firebase Authentication, agregá ese dominio en **Authorized domains**. Firestore debe tener publicadas las reglas de [`firestore.rules`](./firestore.rules).
-5. Comprobá `https://TU-SERVICIO.onrender.com/api/health`. La API informa si Firebase Admin y SMTP están configurados, sin revelar credenciales. Firebase Admin permite autenticación de servidor, administración y pedidos de demostración. SMTP es opcional para navegar/probar el resto; sin SMTP no se enviarán correos de verificación ni recuperación.
+5. Comprobá `https://TU-SERVICIO.onrender.com/api/health`. La API informa si Firebase Admin y el transporte de correo están configurados, sin revelar credenciales. Firebase Admin permite autenticación de servidor, administración y pedidos de demostración. El correo es opcional para navegar/probar el resto; sin un proveedor configurado no se enviarán correos de verificación ni recuperación.
 
 Para enviar correos desde Render, se puede usar la API HTTPS de Brevo: agregá `BREVO_API_KEY` con una clave API privada y `EMAIL_FROM` con un remitente verificado, por ejemplo `Lúmina <tienda@tudominio.com>`. Al estar configurada, la aplicación elige esta opción antes que SMTP. Guardá la clave solo en Environment de Render, nunca en `VITE_*` ni en Git. El endpoint de salud informa el transporte elegido (`emailTransport`), pero no envía un mensaje de prueba.
 

@@ -6,7 +6,7 @@ import helmet from 'helmet'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app'
-import { getAuth, type DecodedIdToken } from 'firebase-admin/auth'
+import { getAuth, type DecodedIdToken, type UserRecord } from 'firebase-admin/auth'
 import { FieldValue, getFirestore } from 'firebase-admin/firestore'
 import { products as demoProducts } from '../src/data/products.js'
 import {
@@ -53,6 +53,14 @@ const firebaseApp =
   })
 const firebaseAuth = getAuth(firebaseApp)
 const firestore = getFirestore(firebaseApp)
+
+function isBootstrapAdmin(email?: string | null, emailVerified?: boolean): boolean {
+  if (!email || emailVerified !== true) return false
+  const normalizedEmail = email.trim().toLocaleLowerCase('en-US')
+  return (process.env.ADMIN_EMAILS ?? '')
+    .split(',')
+    .some((value) => value.trim().toLocaleLowerCase('en-US') === normalizedEmail)
+}
 
 const app = express()
 app.disable('x-powered-by')
@@ -113,6 +121,14 @@ const authenticatedActionLimiter = rateLimit({
   message: { error: 'Hubo varios intentos. Esperá unos minutos y volvé a probar.' },
 })
 
+const adminGrantLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Hubo varias asignaciones de permisos. Esperá unos minutos y volvé a probar.' },
+})
+
 const checkoutLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
@@ -137,7 +153,10 @@ async function requireAdmin(request: Request, _response: Response, next: NextFun
   }
   try {
     const admin = await firestore.doc(`admins/${uid}`).get()
-    if (!admin.exists || admin.get('active') !== true) {
+    if (
+      (!admin.exists || admin.get('active') !== true) &&
+      !isBootstrapAdmin(request.authenticatedUser?.email, request.authenticatedUser?.email_verified)
+    ) {
       next(new ApiError('Esta cuenta no tiene permisos de administración.', 403))
       return
     }
@@ -364,10 +383,80 @@ app.get(
     try {
       const uid = request.authenticatedUser?.uid
       if (!uid) throw new ApiError('Iniciá sesión para consultar este permiso.', 401)
-      const admin = await firestore.doc(`admins/${uid}`).get()
-      response.json({ isAdmin: admin.exists && admin.get('active') === true })
+      const adminRef = firestore.doc(`admins/${uid}`)
+      const admin = await adminRef.get()
+      const bootstrapAdmin = isBootstrapAdmin(
+        request.authenticatedUser?.email,
+        request.authenticatedUser?.email_verified,
+      )
+      if (bootstrapAdmin && (!admin.exists || admin.get('active') !== true)) {
+        await adminRef.set({
+          email: request.authenticatedUser?.email,
+          active: true,
+          grantedBy: 'environment-bootstrap',
+          grantedAt: FieldValue.serverTimestamp(),
+        }, { merge: true })
+      }
+      response.json({
+        isAdmin: (admin.exists && admin.get('active') === true) ||
+          bootstrapAdmin,
+      })
     } catch (error) {
       next(error)
+    }
+  },
+)
+
+app.post(
+  '/api/admin/users',
+  requireFirebaseServices,
+  requireUser,
+  requireAdmin,
+  adminGrantLimiter,
+  async (request, response, next) => {
+    try {
+      const emailValue: unknown = request.body?.email
+      const email = typeof emailValue === 'string' ? emailValue.trim().toLowerCase() : ''
+      if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        throw new ApiError('Ingresá un email válido.', 400)
+      }
+
+      let targetUser: UserRecord
+      try {
+        targetUser = await firebaseAuth.getUserByEmail(email)
+      } catch (error) {
+        if (errorCode(error) === 'auth/user-not-found') {
+          throw new ApiError('No encontramos una cuenta de Lúmina con ese email. La persona debe registrarse primero.', 404)
+        }
+        throw error
+      }
+      if (!targetUser.emailVerified) {
+        throw new ApiError('La cuenta existe, pero primero debe verificar su email para recibir permisos de administración.', 409)
+      }
+
+      const adminRef = firestore.doc(`admins/${targetUser.uid}`)
+      const existingAdmin = await adminRef.get()
+      if (existingAdmin.exists && existingAdmin.get('active') === true) {
+        response.json({ message: 'Esa cuenta ya tiene permisos de administración.' })
+        return
+      }
+
+      await adminRef.set({
+        email,
+        active: true,
+        grantedBy: request.authenticatedUser?.uid ?? '',
+        grantedAt: FieldValue.serverTimestamp(),
+      }, { merge: true })
+      response.status(201).json({
+        message: `Se habilitó el rol Admin para ${email}. La cuenta puede cerrar sesión y volver a ingresar.`,
+      })
+    } catch (error) {
+      if (error instanceof ApiError) {
+        next(error)
+        return
+      }
+      console.error('Falló la asignación de permisos de administración.', errorCode(error) || 'unknown_error')
+      response.status(503).json({ error: 'No pudimos guardar los permisos de administración. Intentá de nuevo.' })
     }
   },
 )
