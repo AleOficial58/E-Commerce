@@ -1206,21 +1206,72 @@ app.get(
         throw new ApiError('No encontramos ese pedido.', 404)
       }
       const orderData = order.data() ?? {}
-      const items = Array.isArray(orderData.items)
-        ? orderData.items.flatMap((item) =>
-            typeof item === 'object' && item !== null &&
-            'id' in item && typeof item.id === 'string' &&
-            'quantity' in item && typeof item.quantity === 'number'
-              ? [{ id: item.id, quantity: item.quantity }]
-              : [],
-          )
-        : []
+      if (
+        !Array.isArray(orderData.items) ||
+        typeof orderData.shipping !== 'object' || orderData.shipping === null ||
+        typeof orderData.paymentStatus !== 'string' ||
+        typeof orderData.status !== 'string' ||
+        typeof orderData.subtotal !== 'number' || !Number.isFinite(orderData.subtotal) ||
+        typeof orderData.shippingCost !== 'number' || !Number.isFinite(orderData.shippingCost) ||
+        typeof orderData.total !== 'number' || !Number.isFinite(orderData.total)
+      ) {
+        throw new ApiError('Los datos de este pedido no son válidos.', 500)
+      }
+      const items = orderData.items.map((item: unknown) => {
+        if (
+          typeof item !== 'object' || item === null ||
+          !('id' in item) || typeof item.id !== 'string' ||
+          !('name' in item) || typeof item.name !== 'string' ||
+          !('image' in item) || typeof item.image !== 'string' ||
+          !('price' in item) || typeof item.price !== 'number' || !Number.isFinite(item.price) ||
+          !('quantity' in item) || typeof item.quantity !== 'number' || !Number.isInteger(item.quantity) ||
+          !('lineTotal' in item) || typeof item.lineTotal !== 'number' || !Number.isFinite(item.lineTotal)
+        ) {
+          throw new ApiError('Los productos de este pedido no son válidos.', 500)
+        }
+        return {
+          id: item.id,
+          name: item.name,
+          image: item.image,
+          price: item.price,
+          quantity: item.quantity,
+          lineTotal: item.lineTotal,
+        }
+      })
+      const shipping = orderData.shipping
+      if (
+        !('name' in shipping) || typeof shipping.name !== 'string' ||
+        !('phone' in shipping) || typeof shipping.phone !== 'string' ||
+        !('address' in shipping) || typeof shipping.address !== 'string' ||
+        !('apartment' in shipping) || typeof shipping.apartment !== 'string' ||
+        !('city' in shipping) || typeof shipping.city !== 'string' ||
+        !('province' in shipping) || typeof shipping.province !== 'string' ||
+        !('postalCode' in shipping) || typeof shipping.postalCode !== 'string'
+      ) {
+        throw new ApiError('La dirección de entrega de este pedido no es válida.', 500)
+      }
+      const shippingAddress = {
+        name: shipping.name,
+        phone: shipping.phone,
+        address: shipping.address,
+        apartment: shipping.apartment,
+        city: shipping.city,
+        province: shipping.province,
+        postalCode: shipping.postalCode,
+      }
+      const createdAt = orderData.createdAt instanceof Timestamp
+        ? orderData.createdAt.toDate().toISOString()
+        : null
       response.json({
         order: {
           id: order.id,
           paymentStatus: orderData.paymentStatus,
           status: orderData.status,
+          subtotal: orderData.subtotal,
+          shippingCost: orderData.shippingCost,
           total: orderData.total,
+          createdAt,
+          shipping: shippingAddress,
           items,
         },
       })

@@ -27,17 +27,55 @@ export type CustomerOrderStatus = {
   id: string
   paymentStatus: string
   status: string
+  subtotal: number
+  shippingCost: number
   total: number
-  items: { id: string; quantity: number }[]
+  createdAt: string | null
+  shipping: ShippingAddress
+  items: {
+    id: string
+    name: string
+    image: string
+    price: number
+    quantity: number
+    lineTotal: number
+  }[]
 }
 
 function isCustomerOrderStatus(value: unknown): value is CustomerOrderStatus {
-  return typeof value === 'object' && value !== null &&
-    'id' in value && typeof value.id === 'string' &&
-    'paymentStatus' in value && typeof value.paymentStatus === 'string' &&
-    'status' in value && typeof value.status === 'string' &&
-    'total' in value && typeof value.total === 'number' &&
-    'items' in value && Array.isArray(value.items)
+  if (
+    typeof value !== 'object' || value === null ||
+    !('id' in value) || typeof value.id !== 'string' ||
+    !('paymentStatus' in value) || typeof value.paymentStatus !== 'string' ||
+    !('status' in value) || typeof value.status !== 'string' ||
+    !('subtotal' in value) || typeof value.subtotal !== 'number' || !Number.isFinite(value.subtotal) ||
+    !('shippingCost' in value) || typeof value.shippingCost !== 'number' || !Number.isFinite(value.shippingCost) ||
+    !('total' in value) || typeof value.total !== 'number' || !Number.isFinite(value.total) ||
+    !('createdAt' in value) || (typeof value.createdAt !== 'string' && value.createdAt !== null) ||
+    !('shipping' in value) || typeof value.shipping !== 'object' || value.shipping === null ||
+    !('items' in value) || !Array.isArray(value.items)
+  ) return false
+
+  const shipping = value.shipping
+  if (
+    !('name' in shipping) || typeof shipping.name !== 'string' ||
+    !('phone' in shipping) || typeof shipping.phone !== 'string' ||
+    !('address' in shipping) || typeof shipping.address !== 'string' ||
+    !('apartment' in shipping) || typeof shipping.apartment !== 'string' ||
+    !('city' in shipping) || typeof shipping.city !== 'string' ||
+    !('province' in shipping) || typeof shipping.province !== 'string' ||
+    !('postalCode' in shipping) || typeof shipping.postalCode !== 'string'
+  ) return false
+
+  return value.items.every((item: unknown) =>
+    typeof item === 'object' && item !== null &&
+    'id' in item && typeof item.id === 'string' &&
+    'name' in item && typeof item.name === 'string' &&
+    'image' in item && typeof item.image === 'string' &&
+    'price' in item && typeof item.price === 'number' && Number.isFinite(item.price) &&
+    'quantity' in item && typeof item.quantity === 'number' && Number.isInteger(item.quantity) &&
+    'lineTotal' in item && typeof item.lineTotal === 'number' && Number.isFinite(item.lineTotal),
+  )
 }
 
 export type AdminOrder = {
@@ -83,6 +121,7 @@ export function pollCustomerOrder(
   let paymentNeedsSync = true
 
   const poll = async () => {
+    let nextPollInterval = 3000
     try {
       if (paymentNeedsSync) {
         await apiRequest(user, `/api/orders/${encodeURIComponent(orderId)}/payment-sync`, {
@@ -103,28 +142,13 @@ export function pollCustomerOrder(
       }
 
       const order = result.order
-      const items = order.items.flatMap((item: unknown) =>
-        typeof item === 'object' && item !== null &&
-        'id' in item && typeof item.id === 'string' &&
-        'quantity' in item && typeof item.quantity === 'number'
-          ? [{ id: item.id, quantity: item.quantity }]
-          : [],
-      )
-
       if (!active) return
-      onUpdate({
-        order: {
-          id: order.id,
-          paymentStatus: order.paymentStatus,
-          status: order.status,
-          total: order.total,
-          items,
-        },
-      })
+      onUpdate({ order })
+      nextPollInterval = order.paymentStatus === 'approved' ? 15_000 : 3000
       if (
-        ['approved', 'rejected', 'cancelled', 'refunded', 'charged_back', 'expired', 'preference_failed']
+        ['rejected', 'cancelled', 'refunded', 'charged_back', 'expired', 'preference_failed']
           .includes(order.paymentStatus) ||
-        ['payment_failed', 'payment_expired', 'payment_review'].includes(order.status)
+        ['payment_failed', 'payment_expired', 'delivered'].includes(order.status)
       ) {
         return
       }
@@ -133,8 +157,9 @@ export function pollCustomerOrder(
       onError(error instanceof Error ? error : new Error('No pudimos consultar el estado del pedido.'))
       return
     }
-
-    if (active) timeout = window.setTimeout(() => void poll(), 3000)
+    if (active) {
+      timeout = window.setTimeout(() => void poll(), nextPollInterval)
+    }
   }
 
   void poll()

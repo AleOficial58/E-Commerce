@@ -32,6 +32,7 @@ import {
   type ReviewSummary,
 } from './lib/reviewsApi'
 import { AuthActionPage } from './components/AuthActionPage'
+import { OrderStatusPage } from './components/OrderStatusPage'
 import './App.css'
 
 type IconName =
@@ -636,7 +637,7 @@ function Storefront() {
     'checking' | 'approved' | 'pending' | 'failed' | 'review' | 'error'
   >('checking')
   const [paymentReturnMessage, setPaymentReturnMessage] = useState('')
-  const [paymentReturnTotal, setPaymentReturnTotal] = useState<number | null>(null)
+  const [paymentReturnOrder, setPaymentReturnOrder] = useState<CustomerOrderStatus | null>(null)
   const [paymentRefreshCount, setPaymentRefreshCount] = useState(0)
   const [checkoutShipping, setCheckoutShipping] = useState<ShippingAddress>({
     ...emptyCustomerProfile,
@@ -732,12 +733,12 @@ function Storefront() {
       !currentUrl.searchParams.has('payment_id') &&
       !currentUrl.searchParams.has('collection_id')
     ) return
-    currentUrl.searchParams.delete('payment')
-    currentUrl.searchParams.delete('order_id')
+    currentUrl.searchParams.set('payment', 'return')
+    currentUrl.searchParams.set('order_id', paymentReturnOrderId)
     currentUrl.searchParams.delete('payment_id')
     currentUrl.searchParams.delete('collection_id')
-    currentUrl.searchParams.delete('collection_status')
     currentUrl.searchParams.delete('external_reference')
+    currentUrl.searchParams.delete('collection_status')
     currentUrl.searchParams.delete('merchant_order_id')
     currentUrl.searchParams.delete('status')
     currentUrl.searchParams.delete('payment_type')
@@ -762,8 +763,8 @@ function Storefront() {
     const handleOrderUpdate = (result: { order: CustomerOrderStatus }) => {
       if (!active) return
       setPaymentReturnMessage('')
-      const { paymentStatus, status, total } = result.order
-      setPaymentReturnTotal(total)
+      const { paymentStatus, status } = result.order
+      setPaymentReturnOrder(result.order)
       if (paymentStatus === 'approved' && status === 'payment_review') {
         setPaymentReturnStatus('review')
         return
@@ -1738,6 +1739,49 @@ function Storefront() {
     }
   }
 
+  function returnToStore() {
+    const currentUrl = new URL(window.location.href)
+    for (const param of [
+      'payment',
+      'order_id',
+      'payment_id',
+      'collection_id',
+      'collection_status',
+      'external_reference',
+      'merchant_order_id',
+      'status',
+      'payment_type',
+      'preference_id',
+      'site_id',
+      'processing_mode',
+      'merchant_account_id',
+    ]) currentUrl.searchParams.delete(param)
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`,
+    )
+    setPaymentReturnOrderId('')
+  }
+
+  if (paymentReturnOrderId && user) {
+    return (
+      <OrderStatusPage
+        orderId={paymentReturnOrderId}
+        order={paymentReturnOrder}
+        status={paymentReturnStatus}
+        message={paymentReturnMessage}
+        onRefresh={() => {
+          setPaymentReturnStatus('checking')
+          setPaymentReturnMessage('')
+          setPaymentRefreshCount((count) => count + 1)
+        }}
+        onBack={returnToStore}
+        money={money}
+      />
+    )
+  }
+
   return (
     <main className="storefront-enter">
       <div
@@ -2314,59 +2358,6 @@ function Storefront() {
               </button>
               <p className="checkout-disclaimer">El estado del pedido se confirma cuando Mercado Pago notifica el resultado al servidor.</p>
             </form>
-          </section>
-        </div>
-      )}
-
-      {paymentReturnOrderId && user && (
-        <div className="checkout-backdrop" onMouseDown={(event) => {
-          if (event.target === event.currentTarget) setPaymentReturnOrderId('')
-        }}>
-          <section className="order-success" role="dialog" aria-modal="true" aria-labelledby="payment-return-title">
-            <span className="order-success-icon">
-              <Icon name={paymentReturnStatus === 'approved' ? 'check' : 'bag'} size={30} />
-            </span>
-            <span className="eyebrow section-eyebrow">ESTADO DEL PAGO</span>
-            <h2 id="payment-return-title">
-              {paymentReturnStatus === 'checking' ? 'Verificando tu pago…'
-                : paymentReturnStatus === 'approved' ? '¡Pago confirmado!'
-                  : paymentReturnStatus === 'review' ? 'Estamos revisando tu pedido'
-                    : paymentReturnStatus === 'failed' ? 'El pago no se completó'
-                      : paymentReturnStatus === 'pending' ? 'El pago sigue pendiente'
-                        : 'No pudimos consultar el pago'}
-            </h2>
-            <p>
-              {paymentReturnStatus === 'checking' ? 'Consultamos el estado confirmado por Mercado Pago.'
-                : paymentReturnStatus === 'approved' ? 'Mercado Pago confirmó el pago y el pedido quedó registrado.'
-                  : paymentReturnStatus === 'review' ? 'El pago fue aprobado, pero el equipo debe revisar la disponibilidad del pedido.'
-                    : paymentReturnStatus === 'failed' ? 'No se registró un pago aprobado. Podés volver a intentarlo desde tu bolso.'
-                      : paymentReturnStatus === 'pending' ? 'Mercado Pago todavía no confirmó el resultado. Podés volver a consultar en unos instantes.'
-                        : paymentReturnMessage}
-            </p>
-            <div className="order-success-reference"><span>Número de pedido</span><strong>{paymentReturnOrderId}</strong></div>
-            {paymentReturnTotal !== null && (
-              <div className="order-success-reference"><span>Total</span><strong>{money.format(paymentReturnTotal)}</strong></div>
-            )}
-            {['pending', 'error'].includes(paymentReturnStatus) && (
-              <button
-                className="button button-dark profile-save-button"
-                onClick={() => {
-                  setPaymentReturnStatus('checking')
-                  setPaymentReturnMessage('')
-                  setPaymentRefreshCount((count) => count + 1)
-                }}
-              >
-                Volver a consultar
-              </button>
-            )}
-            {paymentReturnStatus !== 'checking' && (
-              <button
-                className="auth-switch"
-                onClick={() => setPaymentReturnOrderId('')}
-              >
-                Seguir explorando
-              </button>
-            )}
           </section>
         </div>
       )}
