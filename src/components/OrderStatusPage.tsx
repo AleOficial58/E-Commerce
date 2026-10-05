@@ -212,7 +212,16 @@ export function OrderStatusPage({
                       </>
                     )}
                   </section>
-                  <ol className={`order-timeline ${order?.shipmentType === 'international' ? 'is-international' : ''}`} aria-label="Seguimiento del pedido">
+                  <ol
+                    className={`order-timeline ${
+                      order?.shipmentType === 'international'
+                        ? 'is-international'
+                        : order?.shipmentType === 'local'
+                          ? 'is-local'
+                          : ''
+                    }`}
+                    aria-label="Seguimiento del pedido"
+                  >
                     {fulfillmentSteps.map((step, index) => {
                       const statusEvent = order?.statusHistory.find((event) => event.status === step.status)
                       const eventDate = statusEvent
