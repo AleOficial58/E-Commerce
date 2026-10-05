@@ -11116,3 +11116,9 @@ html[data-theme='dark'] .order-page-card.order-purchase-summary {
 html[data-theme='dark'] .order-status-item {
   background: transparent;
 }
+
+html[data-theme='dark'] .order-message-form textarea {
+  border-color: #514650;
+  color: #f0e8ec;
+  background-color: transparent;
+}
