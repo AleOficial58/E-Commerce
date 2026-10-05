@@ -5249,24 +5249,6 @@ main {
   animation: loading-sparkle 4s ease-in-out infinite;
 }
 
-.benefit-strip > div {
-  transition: transform .25s ease, background-color .25s ease;
-}
-
-.benefit-strip > div:hover {
-  background-color: rgb(255 255 255 / 58%);
-  transform: translateY(-3px);
-}
-
-.benefit-icon {
-  transition: color .25s ease, transform .25s ease;
-}
-
-.benefit-strip > div:hover .benefit-icon {
-  color: #b96e86;
-  transform: rotate(-10deg) scale(1.08);
-}
-
 .product-card {
   animation: product-card-enter .6s both;
   transition: transform .3s ease;
@@ -5530,6 +5512,14 @@ main {
 .product-rail > .product-card {
   min-width: 0;
   scroll-snap-align: start;
+}
+
+.product-rail.is-single-product {
+  grid-auto-columns: min(100%, 420px);
+}
+
+.product-rail.is-single-product .product-image {
+  aspect-ratio: 1.1;
 }
 
 .admin-tabs {
@@ -7601,14 +7591,6 @@ html[data-theme='dark'] .benefit-icon {
 
 html[data-theme='dark'] .benefit-strip small {
   color: #c2b4bc;
-}
-
-html[data-theme='dark'] .benefit-strip > div:hover {
-  background-color: rgb(255 255 255 / 5%);
-}
-
-html[data-theme='dark'] .benefit-strip > div:hover .benefit-icon {
-  color: #f0c0ce;
 }
 
 html[data-theme='dark'] .main-nav a,

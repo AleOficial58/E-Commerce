@@ -999,12 +999,14 @@ function ProductRail({
     <section className="product-rail-section section-wrap" aria-labelledby={`${id}-title`}>
       <header className="product-rail-heading">
         <div><h2 id={`${id}-title`}>{title}</h2><p>{description}</p></div>
-        <div className="product-rail-controls">
-          <button type="button" onClick={() => scrollRail(-1)} aria-label={`Ver productos anteriores: ${title}`}><Icon name="arrow" size={17} /></button>
-          <button type="button" onClick={() => scrollRail(1)} aria-label={`Ver más productos: ${title}`}><Icon name="arrow" size={17} /></button>
-        </div>
+        {railProducts.length > 1 && (
+          <div className="product-rail-controls">
+            <button type="button" onClick={() => scrollRail(-1)} aria-label={`Ver productos anteriores: ${title}`}><Icon name="arrow" size={17} /></button>
+            <button type="button" onClick={() => scrollRail(1)} aria-label={`Ver más productos: ${title}`}><Icon name="arrow" size={17} /></button>
+          </div>
+        )}
       </header>
-      <div className="product-rail" ref={railRef}>
+      <div className={`product-rail${railProducts.length === 1 ? ' is-single-product' : ''}`} ref={railRef}>
         {railProducts.map((product) => (
           <ProductCard
             key={product.id}
