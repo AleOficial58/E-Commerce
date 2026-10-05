@@ -3086,7 +3086,7 @@ function Storefront() {
       </section>
 
       <section className="benefit-strip" aria-label="Beneficios">
-        <div><span className="benefit-icon">₱</span><span><strong>Total visible antes de pagar</strong><small>Precio y envío informados en el checkout</small></span></div>
+        <div><span className="benefit-icon" aria-hidden="true">$</span><span><strong>Total visible antes de pagar</strong><small>Precio y envío informados en el checkout</small></span></div>
         <div><span className="benefit-icon"><Icon name="lock" size={17} /></span><span><strong>Pago en Mercado Pago</strong><small>Checkout externo y seguro</small></span></div>
         <div><span className="benefit-icon">★</span><span><strong>Opiniones verificadas</strong><small>Solo de compras acreditadas</small></span></div>
       </section>

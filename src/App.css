@@ -7599,6 +7599,18 @@ html[data-theme='dark'] .benefit-icon {
   color: #f0c0ce;
 }
 
+html[data-theme='dark'] .benefit-strip small {
+  color: #c2b4bc;
+}
+
+html[data-theme='dark'] .benefit-strip > div:hover {
+  background-color: rgb(255 255 255 / 5%);
+}
+
+html[data-theme='dark'] .benefit-strip > div:hover .benefit-icon {
+  color: #f0c0ce;
+}
+
 html[data-theme='dark'] .main-nav a,
 html[data-theme='dark'] .main-nav button,
 html[data-theme='dark'] .footer-links a,
