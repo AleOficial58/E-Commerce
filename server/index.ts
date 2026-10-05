@@ -286,6 +286,7 @@ const reviewMediaLimits = {
 const cloudinaryNotConfiguredMessage =
   'Las fotos y videos de opiniones no están configurados. La opinión de texto sigue disponible.'
 let activeReviewUploads = 0
+let pendingOrderCleanupCursor: string | null = null
 
 type CloudinaryConfig = {
   cloudName: string
@@ -786,16 +787,30 @@ async function releaseOrderInventory(
 }
 
 async function expirePendingOrders() {
-  const now = Timestamp.now()
-  const pendingOrders = await firestore.collection('orders')
+  let query = firestore.collection('orders')
     .where('status', '==', 'pending_payment')
-    .where('expiresAt', '<=', now)
-    .orderBy('expiresAt', 'asc')
+    .orderBy(FieldPath.documentId(), 'asc')
     .limit(500)
-    .get()
-  await Promise.all(pendingOrders.docs.map((document) =>
-    releaseOrderInventory(document.id, 'expired', 'payment_expired'),
-  ))
+  if (pendingOrderCleanupCursor) {
+    const cursorSnapshot = await firestore.doc(`orders/${pendingOrderCleanupCursor}`).get()
+    if (cursorSnapshot.exists) {
+      query = query.startAfter(cursorSnapshot)
+    } else {
+      pendingOrderCleanupCursor = null
+    }
+  }
+  const pendingOrders = await query.get()
+  if (pendingOrders.size < 500) {
+    pendingOrderCleanupCursor = null
+  } else {
+    pendingOrderCleanupCursor = pendingOrders.docs[pendingOrders.docs.length - 1]?.id ?? null
+  }
+  const now = Timestamp.now()
+  await Promise.all(pendingOrders.docs.map((document) => {
+    const expiresAt = document.get('expiresAt')
+    if (!(expiresAt instanceof Timestamp) || expiresAt.toMillis() > now.toMillis()) return
+    return releaseOrderInventory(document.id, 'expired', 'payment_expired')
+  }))
 }
 
 async function settleMercadoPagoPayment(payment: MercadoPagoPayment) {
