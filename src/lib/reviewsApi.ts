@@ -52,6 +52,12 @@ export type PendingReviewMediaPage = {
   hasMore: boolean
 }
 
+export type AdminProductReviewPage = {
+  reviews: AdminProductReview[]
+  nextCursor: string | null
+  hasMore: boolean
+}
+
 export type AdminProductReview = {
   id: string
   productId: string
@@ -203,8 +209,10 @@ export function moderatePendingReviewMedia(
 
 export function loadAdminProductReviews(
   user: User,
-): Promise<{ reviews: AdminProductReview[] }> {
-  return requestJson('/api/admin/product-reviews', { user })
+  cursor = '',
+): Promise<AdminProductReviewPage> {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
+  return requestJson(`/api/admin/product-reviews${query}`, { user })
 }
 
 export function deleteAdminProductReview(

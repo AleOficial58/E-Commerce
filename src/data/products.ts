@@ -3,6 +3,8 @@ export type ProductAttribute = {
   value: string
 }
 
+export const MAX_ORDER_QUANTITY = 20
+
 export type Product = {
   id: string
   name: string

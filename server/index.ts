@@ -8,8 +8,8 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app'
 import { getAuth, type DecodedIdToken, type UserRecord } from 'firebase-admin/auth'
-import { FieldValue, Timestamp, getFirestore, type DocumentReference } from 'firebase-admin/firestore'
-import { products as demoProducts } from '../src/data/products.js'
+import { FieldPath, FieldValue, Timestamp, getFirestore, type DocumentReference } from 'firebase-admin/firestore'
+import { MAX_ORDER_QUANTITY, products as demoProducts } from '../src/data/products.js'
 import {
   EmailDeliveryError,
   getActionCodeSettings,
@@ -221,7 +221,7 @@ function readCheckoutRequest(request: Request) {
       !Number.isInteger(item.quantity) ||
       typeof item.quantity !== 'number' ||
       item.quantity < 1 ||
-      item.quantity > 20
+      item.quantity > MAX_ORDER_QUANTITY
     ) {
       throw new ApiError('El bolso contiene un precio o una cantidad inválida. Actualizá la tienda e intentá de nuevo.', 400)
     }
@@ -786,16 +786,16 @@ async function releaseOrderInventory(
 }
 
 async function expirePendingOrders() {
+  const now = Timestamp.now()
   const pendingOrders = await firestore.collection('orders')
     .where('status', '==', 'pending_payment')
+    .where('expiresAt', '<=', now)
+    .orderBy('expiresAt', 'asc')
     .limit(500)
     .get()
-  const now = Date.now()
-  await Promise.all(pendingOrders.docs.map(async (document) => {
-    const expiresAt = document.get('expiresAt')
-    if (!(expiresAt instanceof Timestamp) || expiresAt.toMillis() > now) return
-    await releaseOrderInventory(document.id, 'expired', 'payment_expired')
-  }))
+  await Promise.all(pendingOrders.docs.map((document) =>
+    releaseOrderInventory(document.id, 'expired', 'payment_expired'),
+  ))
 }
 
 async function settleMercadoPagoPayment(payment: MercadoPagoPayment) {
@@ -2571,12 +2571,45 @@ app.get(
   requireFirebaseServices,
   requireUser,
   requireAdmin,
-  async (_request, response, next) => {
+  async (request, response, next) => {
     try {
-      const snapshot = await firestore.collection('productReviews')
+      const rawCursor = request.query.cursor
+      if (rawCursor !== undefined && typeof rawCursor !== 'string') {
+        throw new ApiError('El cursor de opiniones no es válido.', 400)
+      }
+      let cursor: { seconds: number; nanoseconds: number; id: string } | null = null
+      if (rawCursor && rawCursor.length > 512) {
+        throw new ApiError('El cursor de opiniones no es válido.', 400)
+      }
+      if (rawCursor) {
+        try {
+          const parsed: unknown = JSON.parse(Buffer.from(rawCursor, 'base64url').toString('utf8'))
+          if (
+            typeof parsed !== 'object' || parsed === null ||
+            !('seconds' in parsed) || typeof parsed.seconds !== 'number' ||
+            !Number.isInteger(parsed.seconds) || parsed.seconds < 0 || parsed.seconds > 253402300799 ||
+            !('nanoseconds' in parsed) || typeof parsed.nanoseconds !== 'number' ||
+            !Number.isInteger(parsed.nanoseconds) || parsed.nanoseconds < 0 || parsed.nanoseconds > 999999999 ||
+            !('id' in parsed) || typeof parsed.id !== 'string' ||
+            !/^[a-f0-9]{64}$/.test(parsed.id)
+          ) throw new Error('cursor shape')
+          cursor = {
+            seconds: parsed.seconds,
+            nanoseconds: parsed.nanoseconds,
+            id: parsed.id,
+          }
+        } catch {
+          throw new ApiError('El cursor de opiniones no es válido.', 400)
+        }
+      }
+      const reviewsQuery = firestore.collection('productReviews')
         .orderBy('createdAt', 'desc')
-        .get()
-      const productIds = [...new Set(snapshot.docs.flatMap((document) => {
+        .orderBy(FieldPath.documentId(), 'desc')
+      const snapshot = await (cursor
+        ? reviewsQuery.startAfter(new Timestamp(cursor.seconds, cursor.nanoseconds), cursor.id)
+        : reviewsQuery).limit(26).get()
+      const pageDocuments = snapshot.docs.slice(0, 25)
+      const productIds = [...new Set(pageDocuments.flatMap((document) => {
         const productId = document.get('productId')
         return typeof productId === 'string' ? [productId] : []
       }))]
@@ -2591,7 +2624,7 @@ app.get(
         )
         return [productId, product?.name ?? 'Producto no disponible']
       }))
-      const reviews = snapshot.docs.map((document) => {
+      const reviews = pageDocuments.map((document) => {
         const data = document.data()
         const productId = typeof data.productId === 'string' ? data.productId : ''
         const createdAt = data.createdAt instanceof Timestamp
@@ -2607,7 +2640,20 @@ app.get(
         }
       })
       response.set('Cache-Control', 'private, no-store')
-      response.json({ reviews })
+      const lastReview = pageDocuments[pageDocuments.length - 1]
+      const lastCreatedAt = lastReview?.get('createdAt')
+      const nextCursor = snapshot.size > 25 && lastReview && lastCreatedAt instanceof Timestamp
+        ? Buffer.from(JSON.stringify({
+            seconds: lastCreatedAt.seconds,
+            nanoseconds: lastCreatedAt.nanoseconds,
+            id: lastReview.id,
+          })).toString('base64url')
+        : null
+      response.json({
+        reviews,
+        nextCursor,
+        hasMore: nextCursor !== null,
+      })
     } catch (error) {
       next(error)
     }
@@ -2843,7 +2889,6 @@ app.patch(
           },
         )
       }
-      if (historyEvents.length > 0) updates.statusHistory = FieldValue.arrayUnion(...historyEvents)
       await firestore.runTransaction(async (transaction) => {
         const latestOrder = await transaction.get(orderRef)
         if (!latestOrder.exists) throw new ApiError('No encontramos ese pedido.', 404)
@@ -2856,6 +2901,61 @@ app.patch(
           latestOrder.get('paymentStatus') === 'refunded'
         ) {
           throw new ApiError('No se puede despachar un pedido que está siendo cancelado o ya fue cancelado.', 409)
+        }
+        const latestStatus = latestOrder.get('status')
+        if (typeof status === 'string') {
+          const nextStatus = hasShipmentUpdate ? updates.status : status
+          if (hasShipmentUpdate && nextStatus !== status) {
+            throw new ApiError('El estado y la etapa de envío no coinciden.', 400)
+          }
+          const allowedNextStatus =
+            (latestStatus === 'new' && nextStatus === 'preparing') ||
+            (latestStatus === 'preparing' && nextStatus === 'shipped') ||
+            (latestStatus === 'shipped' && nextStatus === 'delivered')
+          if (!allowedNextStatus) {
+            throw new ApiError('El estado del pedido cambió. Actualizá la lista antes de volver a intentarlo.', 409)
+          }
+          if (!hasShipmentUpdate) {
+            const latestShipmentType = latestOrder.get('shipmentType')
+            const nextStage = status === 'preparing'
+              ? 'preparing'
+              : status === 'delivered'
+                ? 'delivered'
+                : latestShipmentType === 'international'
+                  ? 'international_transit'
+                  : 'local_transit'
+            updates.shipmentStage = nextStage
+            updates.shipmentStageDetail = ''
+            if (historyEvents.length > 1) {
+              historyEvents[1] = { status: nextStage, at: Timestamp.now() }
+            }
+          }
+        }
+        if (hasShipmentUpdate) {
+          const currentStage = latestOrder.get('shipmentStage')
+          const currentStageIndex = typeof currentStage === 'string'
+            ? shipmentStages.indexOf(currentStage as typeof shipmentStages[number])
+            : -1
+          const previousStage = currentStageIndex >= 0
+            ? currentStageIndex
+            : latestStatus === 'delivered'
+              ? shipmentStages.indexOf('delivered')
+              : latestStatus === 'shipped'
+                ? shipmentStages.indexOf(
+                    latestOrder.get('shipmentType') === 'international'
+                      ? 'international_transit'
+                      : 'local_transit',
+                  )
+                : 0
+          const nextStage = shipmentStages.indexOf(
+            request.body.shipmentStage as typeof shipmentStages[number],
+          )
+          if (nextStage < previousStage) {
+            throw new ApiError('La etapa del envío no puede retroceder. Revisá el seguimiento e intentá de nuevo.', 409)
+          }
+        }
+        if (historyEvents.length > 0) {
+          updates.statusHistory = FieldValue.arrayUnion(...historyEvents)
         }
         transaction.update(orderRef, updates)
       })

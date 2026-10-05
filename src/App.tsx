@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { createPortal } from 'react-dom'
 import type { User } from 'firebase/auth'
 import Swal from 'sweetalert2'
 import { firebaseReady, getFirebaseServices } from './lib/firebase'
@@ -13,7 +14,7 @@ import {
   requestPasswordResetEmail,
   requestVerificationEmail,
 } from './lib/emailApi'
-import { products, type Product, type ProductAttribute } from './data/products'
+import { MAX_ORDER_QUANTITY, products, type Product, type ProductAttribute } from './data/products'
 import {
   checkAdminAccess,
   cancelCustomerOrder,
@@ -345,6 +346,48 @@ function getProductRouteId(): string {
   return match?.[1] ?? ''
 }
 
+type AdminAccessibilitySettings = {
+  textScale: 'normal' | 'large' | 'largest'
+  highContrast: boolean
+  reduceMotion: boolean
+  visibleFocus: boolean
+  compactLayout: boolean
+}
+
+const defaultAdminAccessibility: AdminAccessibilitySettings = {
+  textScale: 'normal',
+  highContrast: false,
+  reduceMotion: false,
+  visibleFocus: true,
+  compactLayout: false,
+}
+
+function readAdminAccessibilitySettings(): AdminAccessibilitySettings {
+  const systemPrefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  try {
+    const stored = window.localStorage.getItem('lumina:admin-accessibility')
+    if (!stored) return { ...defaultAdminAccessibility, reduceMotion: systemPrefersReducedMotion }
+    const value: unknown = JSON.parse(stored)
+    if (typeof value !== 'object' || value === null) {
+      return { ...defaultAdminAccessibility, reduceMotion: systemPrefersReducedMotion }
+    }
+    const settings = value as Partial<AdminAccessibilitySettings>
+    return {
+      textScale: settings.textScale === 'large' || settings.textScale === 'largest'
+        ? settings.textScale
+        : 'normal',
+      highContrast: settings.highContrast === true,
+      reduceMotion: typeof settings.reduceMotion === 'boolean'
+        ? settings.reduceMotion
+        : systemPrefersReducedMotion,
+      visibleFocus: settings.visibleFocus !== false,
+      compactLayout: settings.compactLayout === true,
+    }
+  } catch {
+    return { ...defaultAdminAccessibility, reduceMotion: systemPrefersReducedMotion }
+  }
+}
+
 function readPublishedProduct(id: string, data: Record<string, unknown>): Product | null {
   const imageTones = ['peach', 'lavender', 'butter', 'mint'] as const
   if (
@@ -562,7 +605,7 @@ function ProductDetailPage({
 
   const galleryImages = product.images?.length ? product.images : [product.image]
   const stock = product.stock ?? 50
-  const maxAvailable = Math.max(0, stock - cartQuantity)
+  const maxAvailable = Math.max(0, Math.min(stock, MAX_ORDER_QUANTITY) - cartQuantity)
   const selectedQuantity = Math.min(quantity, Math.max(1, maxAvailable))
 
   return (
@@ -624,7 +667,9 @@ function ProductDetailPage({
               <span>Precio publicado</span>
             </div>
             <p className={`product-stock-state ${stock > 0 ? 'is-available' : 'is-unavailable'}`}>
-              <span aria-hidden="true" />{maxAvailable > 0 ? `Disponible · ${maxAvailable} ${maxAvailable === 1 ? 'unidad' : 'unidades'} para agregar` : 'Sin stock disponible'}
+              <span aria-hidden="true" />{maxAvailable > 0
+                ? `Disponible · ${maxAvailable} ${maxAvailable === 1 ? 'unidad' : 'unidades'} para agregar`
+                : stock < 1 ? 'Sin stock disponible' : 'Límite de compra alcanzado'}
             </p>
 
             <div className="product-detail-purchase">
@@ -1025,19 +1070,24 @@ function Storefront() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [adminAccessStatus, setAdminAccessStatus] = useState<'checking' | 'admin' | 'not-admin' | 'error'>('checking')
   const [adminAccessError, setAdminAccessError] = useState('')
-  const [adminOpen, setAdminOpen] = useState(false)
+  const [adminOpen, setAdminOpen] = useState(() => window.location.pathname === '/admin')
   const [adminTab, setAdminTab] = useState<'orders' | 'products' | 'reviews' | 'access'>('orders')
+  const [adminAccessibility, setAdminAccessibility] = useState(readAdminAccessibilitySettings)
   const [adminOrders, setAdminOrders] = useState<AdminOrder[]>([])
   const [adminLoading, setAdminLoading] = useState(false)
   const [pendingReviewMedia, setPendingReviewMedia] = useState<PendingReviewMedia[]>([])
   const [adminProductReviews, setAdminProductReviews] = useState<AdminProductReview[]>([])
   const [adminReviewMediaLoading, setAdminReviewMediaLoading] = useState(false)
+  const [adminProductReviewsLoading, setAdminProductReviewsLoading] = useState(false)
   const [adminReviewMediaBusy, setAdminReviewMediaBusy] = useState('')
   const [adminReviewDeleteBusy, setAdminReviewDeleteBusy] = useState('')
   const [adminReviewMediaRefresh, setAdminReviewMediaRefresh] = useState(0)
   const [adminReviewMediaCursor, setAdminReviewMediaCursor] = useState('')
   const [pendingReviewMediaNextCursor, setPendingReviewMediaNextCursor] = useState<string | null>(null)
   const [pendingReviewMediaHasMore, setPendingReviewMediaHasMore] = useState(false)
+  const [adminProductReviewsCursor, setAdminProductReviewsCursor] = useState('')
+  const [adminProductReviewsNextCursor, setAdminProductReviewsNextCursor] = useState<string | null>(null)
+  const [adminProductReviewsHasMore, setAdminProductReviewsHasMore] = useState(false)
   const [adminShipmentBusy, setAdminShipmentBusy] = useState('')
   const [adminMessageThreads, setAdminMessageThreads] = useState<Record<string, boolean>>({})
   const [adminError, setAdminError] = useState('')
@@ -1064,6 +1114,8 @@ function Storefront() {
   const [customerProfileError, setCustomerProfileError] = useState('')
   const [profileEditorOpen, setProfileEditorOpen] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const adminDashboardRef = useRef<HTMLElement>(null)
+  const adminPreviousFocus = useRef<HTMLElement | null>(null)
   const saveQueue = useRef<Promise<void>>(Promise.resolve())
   const knownAdminOrderIds = useRef<Set<string> | null>(null)
   const clearedPaymentOrderIds = useRef<Set<string>>(new Set())
@@ -1074,10 +1126,36 @@ function Storefront() {
     shipmentStage?: string | null
     shipmentStageDetail?: string | null
   }>())
+  const pendingPaymentCartRemovals = useRef(
+    new Map<string, CustomerOrderStatus['items']>(),
+  )
+  const storeReadyUid = useRef<string | null>(null)
   const notificationStore = useNotificationStore(user?.uid ?? null)
   const { addNotification } = notificationStore
   const hasBlockingOverlay = authOpen || accountOpen || cartOpen || checkoutOpen ||
-    profileEditorOpen || adminOpen
+    profileEditorOpen
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lumina:admin-accessibility', JSON.stringify(adminAccessibility))
+    } catch (error) {
+      console.warn('No se pudieron guardar las preferencias de accesibilidad del panel.', error)
+    }
+  }, [adminAccessibility])
+
+  useEffect(() => {
+    if (window.location.pathname !== '/admin' || authLoading || adminAccessStatus === 'checking') return
+    if (!isAdmin) window.location.replace('/')
+  }, [adminAccessStatus, authLoading, isAdmin])
+
+  useEffect(() => {
+    const syncRoutes = () => {
+      setProductRouteId(getProductRouteId())
+      setAdminOpen(window.location.pathname === '/admin')
+    }
+    window.addEventListener('popstate', syncRoutes)
+    return () => window.removeEventListener('popstate', syncRoutes)
+  }, [])
 
   useEffect(() => {
     orderSnapshots.current.clear()
@@ -1169,14 +1247,25 @@ function Storefront() {
   }, [addNotification])
 
   useEffect(() => {
-    const syncProductRoute = () => setProductRouteId(getProductRouteId())
-    window.addEventListener('popstate', syncProductRoute)
-    return () => window.removeEventListener('popstate', syncProductRoute)
-  }, [])
-
-  useEffect(() => {
     if (mobileSearchOpen) searchInputRef.current?.focus()
   }, [mobileSearchOpen])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase('en-US') === 'k') {
+        const target = event.target
+        if (
+          target instanceof HTMLElement &&
+          (target.isContentEditable || target.closest('input, textarea, select'))
+        ) return
+        event.preventDefault()
+        setMobileSearchOpen(true)
+        window.requestAnimationFrame(() => searchInputRef.current?.focus())
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   useEffect(() => {
     if (announcementPaused) return
@@ -1288,15 +1377,22 @@ function Storefront() {
         }
         if (!clearedPaymentOrderIds.current.has(paymentReturnOrderId)) {
           clearedPaymentOrderIds.current.add(paymentReturnOrderId)
-          setCart((current) => {
-            const next = { ...current }
-            result.order.items.forEach(({ id, quantity }) => {
-              const remainingQuantity = (next[id] ?? 0) - quantity
-              if (remainingQuantity > 0) next[id] = remainingQuantity
-              else delete next[id]
+          if (storeReadyUid.current !== user.uid) {
+            pendingPaymentCartRemovals.current.set(
+              `${user.uid}:${paymentReturnOrderId}`,
+              result.order.items,
+            )
+          } else {
+            setCart((current) => {
+              const next = { ...current }
+              result.order.items.forEach(({ id, quantity }) => {
+                const remainingQuantity = (next[id] ?? 0) - quantity
+                if (remainingQuantity > 0) next[id] = remainingQuantity
+                else delete next[id]
+              })
+              return next
             })
-            return next
-          })
+          }
         }
         setPaymentReturnStatus('approved')
         return
@@ -1328,7 +1424,7 @@ function Storefront() {
       active = false
       unsubscribe()
     }
-  }, [addNotification, authLoading, observeOrder, paymentRefreshCount, paymentReturnOrderId, paymentReturnPaymentId, user])
+  }, [addNotification, authLoading, observeOrder, paymentRefreshCount, paymentReturnOrderId, paymentReturnPaymentId, storeLoading, storeReadyForUid, user])
 
   useEffect(() => {
     if (!user || authLoading || customerOrdersPageOpen || selectedCustomerOrderId || paymentReturnOrderId) return
@@ -1465,6 +1561,25 @@ function Storefront() {
     }
   }, [hasBlockingOverlay])
 
+  useEffect(() => {
+    if (!adminOpen || !isAdmin) return
+    const appRoot = document.getElementById('root')
+    const previousInert = appRoot?.inert ?? false
+    const previousOverflow = document.body.style.overflow
+    const activeElement = document.activeElement
+    adminPreviousFocus.current = activeElement instanceof HTMLElement ? activeElement : null
+    if (appRoot) appRoot.inert = true
+    document.body.style.overflow = 'hidden'
+    const frame = window.requestAnimationFrame(() => adminDashboardRef.current?.focus())
+    return () => {
+      window.cancelAnimationFrame(frame)
+      if (appRoot) appRoot.inert = previousInert
+      document.body.style.overflow = previousOverflow
+      if (adminPreviousFocus.current?.isConnected) adminPreviousFocus.current.focus()
+      adminPreviousFocus.current = null
+    }
+  }, [adminOpen, isAdmin])
+
   async function refreshCatalog() {
     const { db, firestoreSdk } = await getFirebaseServices()
     const snapshot = await firestoreSdk.getDocs(firestoreSdk.collection(db, 'products'))
@@ -1495,6 +1610,7 @@ function Storefront() {
             setCustomerProfileDraft(emptyCustomerProfile)
             setCustomerProfileLoadedForUid(null)
             setCustomerProfileError('')
+            storeReadyUid.current = null
             setIsAdmin(false)
             setAdminAccessStatus(currentUser ? 'checking' : 'not-admin')
             setAdminAccessError('')
@@ -1589,7 +1705,6 @@ function Storefront() {
     const refreshOrders = async () => {
       try {
         const orders = await loadAdminOrders(user)
-        await refreshCatalog()
         if (!active) return
         const nextIds = new Set(orders.map((order) => order.id))
         if (knownAdminOrderIds.current) {
@@ -1621,30 +1736,18 @@ function Storefront() {
   useEffect(() => {
     if (!adminOpen || !isAdmin || adminTab !== 'reviews' || !user) return
     let active = true
-    void Promise.allSettled([
-      loadPendingReviewMedia(user, adminReviewMediaCursor),
-      loadAdminProductReviews(user),
-    ])
-      .then(([mediaResult, reviewsResult]) => {
+    void loadPendingReviewMedia(user, adminReviewMediaCursor)
+      .then((page) => {
         if (!active) return
-        if (mediaResult.status === 'fulfilled') {
-          setPendingReviewMedia(mediaResult.value.media)
-          setPendingReviewMediaHasMore(mediaResult.value.hasMore)
-          setPendingReviewMediaNextCursor(mediaResult.value.nextCursor)
-        } else {
-          console.error('No se pudieron cargar los archivos pendientes de moderación.', mediaResult.reason)
-          setAdminError(mediaResult.reason instanceof Error
-            ? mediaResult.reason.message
-            : 'No se pudieron cargar los archivos pendientes.')
-        }
-        if (reviewsResult.status === 'fulfilled') {
-          setAdminProductReviews(reviewsResult.value.reviews)
-        } else {
-          console.error('No se pudieron cargar las opiniones para administración.', reviewsResult.reason)
-          setAdminError(reviewsResult.reason instanceof Error
-            ? reviewsResult.reason.message
-            : 'No se pudieron cargar las opiniones publicadas.')
-        }
+        setPendingReviewMedia(page.media)
+        setPendingReviewMediaHasMore(page.hasMore)
+        setPendingReviewMediaNextCursor(page.nextCursor)
+      })
+      .catch((error: unknown) => {
+        console.error('No se pudieron cargar los archivos pendientes de moderación.', error)
+        if (active) setAdminError(error instanceof Error
+          ? error.message
+          : 'No se pudieron cargar los archivos pendientes.')
       })
       .finally(() => {
         if (active) setAdminReviewMediaLoading(false)
@@ -1655,6 +1758,32 @@ function Storefront() {
   }, [adminOpen, adminReviewMediaCursor, adminReviewMediaRefresh, adminTab, isAdmin, user])
 
   useEffect(() => {
+    if (!adminOpen || !isAdmin || adminTab !== 'reviews' || !user) return
+    let active = true
+    void loadAdminProductReviews(user, adminProductReviewsCursor)
+      .then((page) => {
+        if (!active) return
+        setAdminProductReviews((current) => adminProductReviewsCursor
+          ? [...current, ...page.reviews]
+          : page.reviews)
+        setAdminProductReviewsHasMore(page.hasMore)
+        setAdminProductReviewsNextCursor(page.nextCursor)
+      })
+      .catch((error: unknown) => {
+        console.error('No se pudieron cargar las opiniones para administración.', error)
+        if (active) setAdminError(error instanceof Error
+          ? error.message
+          : 'No se pudieron cargar las opiniones publicadas.')
+      })
+      .finally(() => {
+        if (active) setAdminProductReviewsLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [adminOpen, adminProductReviewsCursor, adminReviewMediaRefresh, adminTab, isAdmin, user])
+
+  useEffect(() => {
     if (!user || authLoading) return
     let active = true
     const uid = user.uid
@@ -1663,7 +1792,19 @@ function Storefront() {
       .then((store) => {
         if (!active) return
         setFavorites(store.favorites)
-        setCart(store.cart)
+        const pendingRemovals = [...pendingPaymentCartRemovals.current.entries()]
+          .filter(([key]) => key.startsWith(`${uid}:`))
+        const mergedCart = { ...store.cart }
+        pendingRemovals.forEach(([key, items]) => {
+          items.forEach(({ id, quantity }) => {
+            const remainingQuantity = (mergedCart[id] ?? 0) - quantity
+            if (remainingQuantity > 0) mergedCart[id] = remainingQuantity
+            else delete mergedCart[id]
+          })
+          pendingPaymentCartRemovals.current.delete(key)
+        })
+        setCart(mergedCart)
+        storeReadyUid.current = uid
         setStoreReadyForUid(uid)
         setAccountError('')
       })
@@ -1888,7 +2029,7 @@ function Storefront() {
   function addToCart(product: Product, requestedQuantity = 1): boolean {
     if (storeLoading || authLoading) return false
     const stock = product.stock ?? 50
-    const available = Math.max(0, stock - (cart[product.id] ?? 0))
+    const available = Math.max(0, Math.min(stock, MAX_ORDER_QUANTITY) - (cart[product.id] ?? 0))
     const quantity = Math.min(Math.max(1, requestedQuantity), available)
     if (quantity < 1) {
       setNotice(stock < 1 ? 'Este producto no tiene stock disponible.' : 'Ya agregaste todas las unidades disponibles.')
@@ -1933,6 +2074,12 @@ function Storefront() {
 
   function changeQuantity(id: string, amount: number) {
     if (storeLoading) return
+    const product = catalog.find((item) => item.id === id)
+    const maximum = Math.min(product?.stock ?? 50, MAX_ORDER_QUANTITY)
+    if (amount > 0 && (cart[id] ?? 0) >= maximum) {
+      setNotice(`Podés agregar hasta ${maximum} unidades de este producto por compra.`)
+      return
+    }
     setCart((current) => {
       const nextQuantity = (current[id] ?? 0) + amount
       if (nextQuantity <= 0) {
@@ -2204,6 +2351,12 @@ function Storefront() {
     }
     if (cartItems.length === 0) {
       setCheckoutError('Tu bolso está vacío. Agregá algún producto antes de continuar.')
+      return
+    }
+    if (cartItems.some(({ product, quantity }) =>
+      quantity > Math.min(product.stock ?? 50, MAX_ORDER_QUANTITY),
+    )) {
+      setCheckoutError('Alguna cantidad de tu bolso supera el stock disponible o el máximo de 20 unidades por producto. Ajustala antes de continuar.')
       return
     }
     setCheckoutBusy(true)
@@ -2588,6 +2741,9 @@ function Storefront() {
   async function openAdminPanel() {
     setAdminLoading(true)
     setAdminError('')
+    if (window.location.pathname !== '/admin') {
+      window.history.pushState({ luminaAdmin: true }, '', '/admin')
+    }
     if (adminTab === 'reviews') {
       setAdminReviewMediaLoading(true)
       setAdminReviewMediaRefresh((current) => current + 1)
@@ -2599,6 +2755,12 @@ function Storefront() {
       console.error('No se pudo actualizar el catálogo del panel de administración.')
       setAdminError(error instanceof Error ? error.message : 'No se pudo actualizar el catálogo.')
     }
+  }
+
+  function closeAdminPanel() {
+    window.history.replaceState({}, '', '/')
+    setAdminOpen(false)
+    setProductRouteId('')
   }
 
   async function handleSignOut() {
@@ -2763,7 +2925,7 @@ function Storefront() {
   }
 
   return (
-    <main className="storefront-enter">
+    <div className="storefront-enter" role={adminOpen ? undefined : 'main'}>
       <div
         className="announcement"
         role="region"
@@ -2842,7 +3004,7 @@ function Storefront() {
                 if (event.key === 'Escape') setMobileSearchOpen(false)
               }}
             />
-            <kbd>⌘ K</kbd>
+            <kbd>Ctrl/⌘ K</kbd>
           </label>
           <NotificationCenter
             notifications={notificationStore.notifications}
@@ -3370,25 +3532,95 @@ function Storefront() {
         </div>
       )}
 
-      {adminOpen && user && isAdmin && (
-        <div className="admin-backdrop">
-          <section className="admin-dashboard" role="dialog" aria-modal="true" aria-labelledby="admin-title">
+      {adminOpen && user && isAdmin && createPortal(
+        <div
+          className="admin-backdrop"
+          data-admin-text={adminAccessibility.textScale}
+          data-admin-contrast={adminAccessibility.highContrast ? 'high' : 'normal'}
+          data-admin-motion={adminAccessibility.reduceMotion ? 'reduced' : 'full'}
+          data-admin-focus={adminAccessibility.visibleFocus ? 'visible' : 'standard'}
+          data-admin-density={adminAccessibility.compactLayout ? 'compact' : 'comfortable'}
+        >
+          <a className="admin-skip-link" href="#admin-main">Ir al contenido principal</a>
+          <section ref={adminDashboardRef} className="admin-dashboard" aria-labelledby="admin-title" tabIndex={-1}>
             <header className="admin-dashboard-header">
-              <div>
-                <span className="eyebrow section-eyebrow">GESTIÓN DE LÚMINA</span>
-                <h2 id="admin-title">Panel de administración</h2>
-                <p>Los pedidos se habilitan para gestión cuando Mercado Pago confirma el pago.</p>
+              <a className="admin-brand" href="/" aria-label="Volver a la tienda Lúmina">
+                <span className="admin-brand-mark">l<span>✳</span></span>
+                <span>ADMIN<span className="admin-brand-divider">/</span>LÚMINA</span>
+              </a>
+              <div className="admin-dashboard-heading">
+                <span className="eyebrow section-eyebrow">ESPACIO DE GESTIÓN</span>
+                <h1 id="admin-title">Administración</h1>
+                <p>Un lugar claro para cuidar cada detalle de la tienda.</p>
               </div>
-              <button className="icon-button" onClick={() => setAdminOpen(false)} aria-label="Cerrar panel de administración"><Icon name="close" /></button>
+              <div className="admin-header-actions">
+                <span className="admin-session-label"><span aria-hidden="true" /> Sesión segura</span>
+                <ThemeToggleButton />
+                <a className="admin-store-link" href="/" aria-label="Volver a la tienda">Ir a la tienda <Icon name="arrow" size={15} /></a>
+              </div>
             </header>
-            <nav className="admin-tabs" aria-label="Secciones de administración">
-              <button className={adminTab === 'orders' ? 'active' : ''} onClick={() => setAdminTab('orders')}><Icon name="bag" size={16} /> Pedidos <span>{adminOrders.length}</span></button>
-              <button className={adminTab === 'reviews' ? 'active' : ''} onClick={() => { setAdminError(''); setAdminReviewMediaLoading(true); setAdminReviewMediaCursor(''); setAdminReviewMediaRefresh((current) => current + 1); setAdminTab('reviews') }}><Icon name="sparkles" size={16} /> Reseñas <span>{adminProductReviews.length}</span></button>
-              <button className={adminTab === 'products' ? 'active' : ''} onClick={() => setAdminTab('products')}><Icon name="box" size={16} /> Productos <span>{catalog.filter((product) => product.active !== false).length}</span></button>
-              <button className={adminTab === 'access' ? 'active' : ''} onClick={() => setAdminTab('access')}><Icon name="user" size={16} /> Accesos</button>
-            </nav>
-            {adminError && <p className="profile-form-error admin-error" role="alert">{adminError}</p>}
-            {adminTab === 'orders' ? (
+            <div className="admin-workspace">
+              <aside className="admin-sidebar" aria-label="Navegación y accesibilidad">
+                <div className="admin-sidebar-section">
+                  <span className="admin-sidebar-label">TIENDA</span>
+                  <nav className="admin-tabs" aria-label="Secciones de administración">
+                    <button aria-current={adminTab === 'orders' ? 'page' : undefined} className={adminTab === 'orders' ? 'active' : ''} onClick={() => setAdminTab('orders')}><Icon name="bag" size={17} /> <span>Pedidos</span><b>{adminOrders.length}</b></button>
+                    <button aria-current={adminTab === 'reviews' ? 'page' : undefined} className={adminTab === 'reviews' ? 'active' : ''} onClick={() => { setAdminError(''); setAdminReviewMediaLoading(true); setAdminProductReviewsLoading(true); setAdminReviewMediaCursor(''); setAdminProductReviewsCursor(''); setAdminReviewMediaRefresh((current) => current + 1); setAdminTab('reviews') }}><Icon name="sparkles" size={17} /> <span>Opiniones</span><b>{adminProductReviews.length}</b></button>
+                    <button aria-current={adminTab === 'products' ? 'page' : undefined} className={adminTab === 'products' ? 'active' : ''} onClick={() => setAdminTab('products')}><Icon name="box" size={17} /> <span>Productos</span><b>{catalog.filter((product) => product.active !== false).length}</b></button>
+                    <button aria-current={adminTab === 'access' ? 'page' : undefined} className={adminTab === 'access' ? 'active' : ''} onClick={() => setAdminTab('access')}><Icon name="user" size={17} /> <span>Accesos</span></button>
+                  </nav>
+                </div>
+                <details className="admin-accessibility" open>
+                  <summary><Icon name="settings" size={17} /> Accesibilidad <span>Preferencias</span></summary>
+                  <div className="admin-accessibility-controls">
+                    <fieldset className="admin-accessibility-field">
+                      <legend>Tamaño del texto</legend>
+                      <div className="admin-choice-group" role="group" aria-label="Tamaño del texto">
+                        {([
+                          ['normal', 'Normal'],
+                          ['large', 'Grande'],
+                          ['largest', 'Más grande'],
+                        ] as const).map(([value, label]) => (
+                          <button
+                            key={value}
+                            type="button"
+                            className={adminAccessibility.textScale === value ? 'is-selected' : ''}
+                            aria-pressed={adminAccessibility.textScale === value}
+                            onClick={() => setAdminAccessibility((current) => ({ ...current, textScale: value }))}
+                          >{label}</button>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <label className="admin-accessibility-switch">
+                      <span><strong>Alto contraste</strong><small>Refuerza texto y límites</small></span>
+                      <input type="checkbox" checked={adminAccessibility.highContrast} onChange={(event) => setAdminAccessibility((current) => ({ ...current, highContrast: event.target.checked }))} />
+                    </label>
+                    <label className="admin-accessibility-switch">
+                      <span><strong>Reducir movimiento</strong><small>Minimiza animaciones</small></span>
+                      <input type="checkbox" checked={adminAccessibility.reduceMotion} onChange={(event) => setAdminAccessibility((current) => ({ ...current, reduceMotion: event.target.checked }))} />
+                    </label>
+                    <label className="admin-accessibility-switch">
+                      <span><strong>Resaltar foco</strong><small>Contorno visible al navegar</small></span>
+                      <input type="checkbox" checked={adminAccessibility.visibleFocus} onChange={(event) => setAdminAccessibility((current) => ({ ...current, visibleFocus: event.target.checked }))} />
+                    </label>
+                    <label className="admin-accessibility-switch">
+                      <span><strong>Vista compacta</strong><small>Más información por pantalla</small></span>
+                      <input type="checkbox" checked={adminAccessibility.compactLayout} onChange={(event) => setAdminAccessibility((current) => ({ ...current, compactLayout: event.target.checked }))} />
+                    </label>
+                  </div>
+                </details>
+                <button className="admin-exit-button" type="button" onClick={closeAdminPanel}>Salir del panel <Icon name="arrow" size={15} /></button>
+              </aside>
+              <main className="admin-main" id="admin-main" tabIndex={-1}>
+                <div className="admin-main-topline">
+                  <div>
+                    <span className="admin-main-kicker">LÚMINA · {adminTab === 'orders' ? 'OPERACIONES' : adminTab === 'reviews' ? 'COMUNIDAD' : adminTab === 'products' ? 'CATÁLOGO' : 'EQUIPO'}</span>
+                    <h2>{adminTab === 'orders' ? 'Pedidos' : adminTab === 'reviews' ? 'Opiniones' : adminTab === 'products' ? 'Productos' : 'Accesos'}</h2>
+                  </div>
+                  <span className="admin-main-account"><Icon name="user" size={16} /> {user.email ?? 'Administrador'}</span>
+                </div>
+                {adminError && <p className="profile-form-error admin-error" role="alert">{adminError}</p>}
+                {adminTab === 'orders' ? (
               <section className="admin-orders">
                 <div className="admin-section-heading">
                   <div><h3>Ventas recientes</h3><p>Se actualiza automáticamente cada 12 segundos mientras el panel está abierto.</p></div>
@@ -3462,8 +3694,8 @@ function Storefront() {
               <section className="admin-review-media">
                 <div className="admin-section-heading">
                   <div><h3>Opiniones de compradores</h3><p>Revisá las opiniones publicadas y eliminá las que no deban permanecer visibles. Los archivos nuevos requieren aprobación antes de publicarse.</p></div>
-                  {adminReviewMediaLoading && <span className="sync-indicator" aria-label="Cargando archivos pendientes" />}
-                  <button type="button" className="auth-switch admin-review-media-refresh" onClick={() => { setAdminError(''); setAdminReviewMediaLoading(true); setAdminReviewMediaCursor(''); setAdminReviewMediaRefresh((current) => current + 1) }} disabled={adminReviewMediaLoading}>Actualizar</button>
+                  {(adminReviewMediaLoading || adminProductReviewsLoading) && <span className="sync-indicator" aria-label="Actualizando opiniones y archivos pendientes" />}
+                  <button type="button" className="auth-switch admin-review-media-refresh" onClick={() => { setAdminError(''); setAdminReviewMediaLoading(true); setAdminProductReviewsLoading(true); setAdminReviewMediaCursor(''); setAdminProductReviewsCursor(''); setAdminReviewMediaRefresh((current) => current + 1) }} disabled={adminReviewMediaLoading || adminProductReviewsLoading}>Actualizar</button>
                 </div>
                 {adminProductReviews.length ? adminProductReviews.map((review) => (
                   <article className="admin-review-entry" key={review.id}>
@@ -3483,8 +3715,21 @@ function Storefront() {
                     </div>
                     <p>{review.comment}</p>
                   </article>
-                )) : !adminReviewMediaLoading && (
+                )) : !adminReviewMediaLoading && !adminProductReviewsLoading && !adminProductReviewsHasMore && (
                   <div className="admin-empty"><Icon name="sparkles" size={28} /><h3>No hay opiniones publicadas</h3><p>Las opiniones verificadas de clientes aparecerán acá para su administración.</p></div>
+                )}
+                {adminProductReviewsHasMore && adminProductReviewsNextCursor && (
+                  <button
+                    type="button"
+                    className="auth-switch admin-review-media-next"
+                    onClick={() => {
+                      setAdminProductReviewsLoading(true)
+                      setAdminProductReviewsCursor(adminProductReviewsNextCursor)
+                    }}
+                    disabled={adminProductReviewsLoading}
+                  >
+                    {adminProductReviewsLoading ? 'Cargando opiniones…' : 'Ver siguientes opiniones'}
+                  </button>
                 )}
                 <div className="admin-section-heading admin-review-pending-heading">
                   <div><h3>Archivos pendientes de revisión</h3><p>Solo se publican después de aprobarlos. Revisá que no expongan datos personales.</p></div>
@@ -3613,8 +3858,11 @@ function Storefront() {
                 </section>
               </section>
             )}
+              </main>
+            </div>
           </section>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {cartOpen && (
@@ -3626,7 +3874,7 @@ function Storefront() {
                 <div className="cart-list">{cartItems.map(({ product, quantity }) => (
                   <article className="cart-item" key={product.id}>
                     <img src={product.image} alt="" />
-                    <div className="cart-item-details"><span>{product.category}</span><h3>{product.name}</h3><strong>{money.format(product.price)}</strong><div className="quantity-control"><button aria-label={`Quitar una unidad de ${product.name}`} onClick={() => changeQuantity(product.id, -1)} disabled={storeLoading}><Icon name="minus" size={15} /></button><span>{quantity}</span><button aria-label={`Agregar una unidad de ${product.name}`} onClick={() => changeQuantity(product.id, 1)} disabled={storeLoading}><Icon name="plus" size={15} /></button></div></div>
+                    <div className="cart-item-details"><span>{product.category}</span><h3>{product.name}</h3><strong>{money.format(product.price)}</strong><div className="quantity-control"><button aria-label={`Quitar una unidad de ${product.name}`} onClick={() => changeQuantity(product.id, -1)} disabled={storeLoading}><Icon name="minus" size={15} /></button><span>{quantity}</span><button aria-label={`Agregar una unidad de ${product.name}`} onClick={() => changeQuantity(product.id, 1)} disabled={storeLoading || quantity >= Math.min(product.stock ?? 50, MAX_ORDER_QUANTITY)}><Icon name="plus" size={15} /></button></div></div>
                   </article>
                 ))}</div>
                 <div className="cart-summary">
@@ -3644,7 +3892,7 @@ function Storefront() {
           </aside>
         </div>
       )}
-    </main>
+    </div>
   )
 }
 
