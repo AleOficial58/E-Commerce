@@ -417,23 +417,52 @@ main {
 }
 
 .benefit-strip {
-  min-height: 99px;
+  width: min(1120px, calc(100% - 48px));
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   align-items: center;
-  padding: 10px 15%;
-  border-bottom: 1px solid #f3efeb;
-  background: #fffdfb;
+  gap: 10px;
+  margin: 22px auto;
+  padding: 12px;
+  border: 1px solid #f0e7e2;
+  border-radius: 24px;
+  background: linear-gradient(135deg, #fffdfb, #fbf5f2);
+  box-shadow: 0 14px 34px rgb(76 52 59 / 7%), inset 0 1px 0 rgb(255 255 255 / 90%);
 }
 
 .benefit-strip > div {
+  min-width: 0;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 12px;
+  padding: 13px 14px;
+  border: 1px solid transparent;
+  border-radius: 17px;
+  background: rgb(255 255 255 / 68%);
+  box-shadow: 0 4px 12px rgb(77 53 59 / 4%);
+  animation: benefit-item-enter .55s both;
+  transition: transform .25s ease, background-color .25s ease, border-color .25s ease, box-shadow .25s ease;
+}
+
+.benefit-strip > div:nth-child(2) {
+  animation-delay: .08s;
+}
+
+.benefit-strip > div:nth-child(3) {
+  animation-delay: .16s;
+}
+
+.benefit-strip > div:hover {
+  transform: translateY(-3px);
+  border-color: #f1dfe3;
+  background: #fff;
+  box-shadow: 0 9px 20px rgb(77 53 59 / 9%);
 }
 
 .benefit-icon {
+  position: relative;
+  flex: 0 0 auto;
   width: 37px;
   height: 37px;
   display: grid;
@@ -442,6 +471,13 @@ main {
   background: #fcf0ec;
   color: #ba8090;
   font-size: 18px;
+  box-shadow: 0 3px 9px rgb(185 126 143 / 12%);
+  transition: transform .25s cubic-bezier(.2, .8, .2, 1), box-shadow .25s ease;
+}
+
+.benefit-strip > div:hover .benefit-icon {
+  transform: rotate(-7deg) scale(1.08);
+  box-shadow: 0 5px 12px rgb(185 126 143 / 20%);
 }
 
 .benefit-strip strong,
@@ -458,6 +494,7 @@ main {
   margin-top: 4px;
   color: #968d90;
   font-size: 9px;
+  line-height: 1.45;
 }
 
 .section-wrap {
@@ -4316,12 +4353,14 @@ main {
   }
 
   .benefit-strip {
-    min-height: 81px;
-    padding: 8px 3%;
+    width: calc(100% - 32px);
+    margin: 16px auto;
+    padding: 10px;
   }
 
   .benefit-strip > div {
     gap: 7px;
+    padding: 11px 9px;
   }
 
   .benefit-icon {
@@ -4564,7 +4603,7 @@ main {
     grid-template-columns: 1fr;
     gap: 11px;
     justify-items: start;
-    padding: 17px 13%;
+    padding: 10px;
   }
 
   .benefit-strip > div {
@@ -5838,6 +5877,11 @@ main {
 @keyframes product-card-enter {
   from { opacity: 0; translate: 0 14px; }
   to { opacity: 1; translate: 0 0; }
+}
+
+@keyframes benefit-item-enter {
+  from { opacity: 0; transform: translateY(9px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 @keyframes favorite-pop {
@@ -7315,7 +7359,6 @@ html[data-theme='dark'] .auth-action-page {
 }
 
 html[data-theme='dark'] .site-footer,
-html[data-theme='dark'] .benefit-strip,
 html[data-theme='dark'] .product-card,
 html[data-theme='dark'] .product-detail-section,
 html[data-theme='dark'] .product-detail-summary,
@@ -7589,8 +7632,30 @@ html[data-theme='dark'] .benefit-icon {
   color: #f0c0ce;
 }
 
+html[data-theme='dark'] .benefit-strip {
+  border-color: #493b45;
+  background: linear-gradient(135deg, #29232b, #211d24);
+  box-shadow: 0 14px 34px rgb(0 0 0 / 18%), inset 0 1px 0 rgb(255 255 255 / 4%);
+}
+
+html[data-theme='dark'] .benefit-strip > div {
+  border-color: #40353e;
+  background: rgb(255 255 255 / 3%);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 12%);
+}
+
+html[data-theme='dark'] .benefit-strip > div:hover {
+  border-color: #674956;
+  background: rgb(255 255 255 / 7%);
+  box-shadow: 0 9px 20px rgb(0 0 0 / 20%);
+}
+
 html[data-theme='dark'] .benefit-strip small {
   color: #c2b4bc;
+}
+
+html[data-theme='dark'] .benefit-strip strong {
+  color: #f0e8ec;
 }
 
 html[data-theme='dark'] .main-nav a,
