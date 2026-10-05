@@ -83,7 +83,8 @@ Para revisar el diseño localmente sin enviar correos ni cambiar contraseñas, a
 - Checkout con Mercado Pago Checkout Pro en sandbox, reserva temporal de stock y pedidos pendientes guardados en Firestore.
 - Confirmación de pagos por webhook firmado y consultado contra la API de Mercado Pago; la pantalla de retorno nunca da por aprobado un pago por la URL.
 - Páginas de detalle de producto responsive y navegables en `/producto/{id}`, con galería de hasta 8 imágenes, descripción extensa, atributos flexibles, stock, compra con cantidad y opiniones verificadas.
-- Centro de notificaciones accesible en el encabezado, con novedades de compras observadas en **Mis compras** o en su detalle, y mensajes nuevos detectados mientras el chat de una compra está abierto. Se guardan hasta 50 avisos por usuario en el dispositivo; el sonido es opcional y está desactivado por defecto. Estas novedades dependen de las consultas periódicas existentes y no son notificaciones push ni un servicio en tiempo real.
+- Centro de notificaciones accesible en el encabezado: confirma en el navegador el pago aprobado al regresar de Mercado Pago y observa cambios de pago, envío y mensajes entrantes. Las compras autenticadas se revisan mediante consultas periódicas mientras la página está abierta, también desde la tienda; no son notificaciones push ni tiempo real. Se guardan hasta 50 avisos por usuario/dispositivo. Los sonidos breves de interacción y de novedades pueden silenciarse por separado desde **Notificaciones → Preferencias**; el navegador solo permite audio después de una interacción del usuario.
+- Microinteracciones y animaciones suaves para navegación, tarjetas, avisos, diálogos y paneles, respetando la preferencia de movimiento reducido del sistema.
 - Opiniones verificadas con adjuntos en Cloudinary Free: hasta 4 fotos JPEG/PNG/WebP (8 MiB cada una) y un video MP4 (25 MiB), siempre privados hasta su aprobación manual. Los límites de crédito mensual de Cloudinary aplican además de los límites por archivo.
 - Panel de administración protegido para publicaciones, disponibilidad, stock, seguimiento de pedidos pagados y asignación de rol Admin por email.
 - Favoritos y bolso sincronizados en subcolecciones del usuario autenticado:
@@ -92,13 +93,31 @@ Para revisar el diseño localmente sin enviar correos ni cambiar contraseñas, a
 - Para visitantes, favoritos y bolso se guardan en el navegador. Al iniciar sesión se combinan con los datos de la cuenta.
 - Diseño adaptable a escritorio y móvil.
 
+## Dependencias externas e inventario técnico
+
+El sistema se integra con **4 grupos de APIs externas** y usa **7 plataformas/proveedores externos** al contar también hosting y recursos visuales. Una de esas plataformas de correo se elige por entorno; no hacen falta dos cuentas de correo activas.
+
+| Plataforma/proveedor | Uso | Dependencia |
+| --- | --- | --- |
+| Firebase Authentication, Firestore y Firebase Admin | Sesiones, verificación de email, perfiles, catálogo, compras, inventario, opiniones y permisos de administración. | Esencial para cuentas y persistencia. |
+| Mercado Pago API y webhooks | Preferencias de Checkout Pro, consulta de pagos, confirmación firmada y reembolsos. | Esencial para pagos en línea. |
+| Cloudinary API/CDN | Fotos y videos privados de opiniones, vistas previas para moderación y entrega tras aprobación. | Opcional; solo adjuntos. Texto y compras no dependen de esta integración. |
+| Brevo API **o** un proveedor SMTP | Envío de correos de verificación y recuperación. Render puede usar Brevo; SMTP es compatible con otros proveedores y desarrollo local. | Se requiere un transporte de correo configurado para enviar mensajes. |
+| Render | Ejecución del backend Express y publicación de la tienda. | Plataforma de hosting del despliegue configurado. |
+| Google Fonts | Carga de las familias tipográficas Manrope y DM Sans. | Presentación; el contenido y las compras no dependen de sus APIs. |
+| Unsplash | Imágenes remotas del catálogo de demostración y piezas editoriales. Las publicaciones propias pueden usar URLs HTTPS públicas. | Recursos visuales externos; no es un backend de imágenes de usuarios. |
+
+**Conteo:** 4 grupos de servicios con API (Firebase, Mercado Pago, Cloudinary y correo), 7 proveedores/plataformas externos listados y 23 dependencias npm directas declaradas en `package.json` (11 de ejecución y 12 de desarrollo). `package-lock.json` fija 424 paquetes totales, contando dependencias transitivas; no son 424 servicios externos.
+
+Las alertas y los sonidos de interfaz se generan en el navegador mediante Web Audio, el tema y las notificaciones se guardan en `localStorage`, y los avatares se generan como SVG local. Estas funciones no dependen de servicios de audio, notificaciones push, hosting de avatar ni cargas de perfil en Firebase Storage. Las actualizaciones de compra se consultan periódicamente con la página abierta; no hay FCM/Web Push ni un canal en tiempo real. El checkout usa Mercado Pago; no se procesa información de tarjetas directamente en Lúmina.
+
 El catálogo inicial de demostración está en `src/data/products.ts`; las publicaciones creadas desde Admin se guardan en Firestore y se combinan con ese catálogo. Las imágenes de producto son URLs públicas HTTPS. Los cambios de favoritos, bolso, perfil, pedidos y publicaciones requieren las reglas de Firestore publicadas desde `firestore.rules`.
 
 Las opiniones se guardan en `productReviews` y sus promedios en `productReviewSummaries`. Los clientes solo pueden leerlas; la API valida la sesión, el email verificado y el registro privado `verifiedPurchases` creado al acreditar un pago antes de aceptar o editar una opinión. Las reseñas contienen puntuación y comentario de texto; no dependen de almacenamiento de archivos.
 
 La verificación se envía al registrarse; la app permite explorar y guardar mientras tanto y muestra el estado en **Mi cuenta**. Firebase Admin genera enlaces de acción de un solo uso y el servidor los envía en correos de marca mediante SMTP; las plantillas integradas de Firebase ya no se usan para estos dos flujos.
 
-El centro de notificaciones muestra cambios de pedidos detectados por la consulta de **Mis compras** y mensajes entrantes del chat cuando el detalle de esa compra está abierto. No son avisos push ni tiempo real: el sonido es opcional, queda apagado inicialmente y solo funciona mientras la tienda permanece abierta en ese navegador. Las preferencias e historial están limitados a 50 avisos y se guardan localmente por cuenta/dispositivo.
+El centro de notificaciones muestra la acreditación confirmada del pago y cambios de pedidos detectados por consultas periódicas mientras la cuenta está activa, así como mensajes entrantes del chat cuando el detalle de esa compra está abierto. No son avisos push ni tiempo real. Los sonidos se sintetizan en el navegador, se pueden silenciar por separado y solo funcionan mientras la tienda permanece abierta. Las preferencias e historial de avisos se guardan localmente por cuenta/dispositivo; el historial está limitado a 50 avisos.
 
 ## Decisiones de arquitectura para esta etapa
 

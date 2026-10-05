@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { StoreNotification } from '../lib/notificationStore'
+import { InterfaceSoundToggle } from '../lib/theme'
 import './NotificationCenter.css'
 
 type NotificationCenterProps = {
@@ -144,9 +145,15 @@ export function NotificationCenter({
         {preferencesOpen ? (
           <div className="notification-preferences">
             <span className="notification-preferences-icon" aria-hidden="true">♪</span>
-            <div>
-              <strong>Sonido de notificaciones</strong>
-              <p>Un tono breve cuando detectemos una novedad nueva en esta tienda.</p>
+            <div className="notification-preference-copy">
+              <strong>Sonidos de interacción</strong>
+              <p>Un toque breve y suave al usar los controles de la tienda.</p>
+            </div>
+            <InterfaceSoundToggle />
+            <span className="notification-preferences-icon is-alert" aria-hidden="true">✳</span>
+            <div className="notification-preference-copy">
+              <strong>Sonidos de novedades</strong>
+              <p>Una señal cuando llega un mensaje o cambia una compra.</p>
             </div>
             <button
               type="button"
@@ -156,7 +163,7 @@ export function NotificationCenter({
               aria-label="Activar sonido de notificaciones"
               onClick={() => onSoundChange(!soundEnabled)}
             ><span /></button>
-            <small>Desactivado por defecto. El sonido solo se reproduce mientras esta página está abierta.</small>
+            <small>Los controles y las novedades tienen sonido por separado. Solo funcionan con la tienda abierta y tras permitir audio en el navegador.</small>
           </div>
         ) : (
           <>

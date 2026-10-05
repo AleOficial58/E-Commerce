@@ -1,13 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import { playInterfaceSound } from './interfaceSounds'
 
 type ColorTheme = 'light' | 'dark'
 
 type ThemeContextValue = {
   theme: ColorTheme
   toggleTheme: () => void
+  interfaceSoundsEnabled: boolean
+  toggleInterfaceSounds: () => void
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null)
+const INTERFACE_SOUND_KEY = 'lumina:interface-sounds'
 
 function getInitialTheme(): ColorTheme {
   return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
@@ -15,6 +19,13 @@ function getInitialTheme(): ColorTheme {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<ColorTheme>(getInitialTheme)
+  const [interfaceSoundsEnabled, setInterfaceSoundsEnabled] = useState(() => {
+    try {
+      return window.localStorage.getItem(INTERFACE_SOUND_KEY) !== 'false'
+    } catch {
+      return true
+    }
+  })
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -33,8 +44,40 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setTheme((current) => current === 'dark' ? 'light' : 'dark')
   }, [])
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(INTERFACE_SOUND_KEY, String(interfaceSoundsEnabled))
+    } catch (error) {
+      console.warn('No se pudo guardar la preferencia de sonidos en este navegador.', error)
+    }
+  }, [interfaceSoundsEnabled])
+
+  useEffect(() => {
+    if (!interfaceSoundsEnabled) return
+    const onClick = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) return
+      if (event.target.closest('[data-sound-ignore="true"]')) return
+      const interactive = event.target.closest(
+        'button, a[href], input[type="button"], input[type="submit"], input[type="checkbox"], input[type="radio"], select, summary, [role="button"], [role="switch"]',
+      )
+      if (!interactive || interactive.matches(':disabled, [aria-disabled="true"]')) return
+      playInterfaceSound()
+    }
+    document.addEventListener('click', onClick, true)
+    return () => document.removeEventListener('click', onClick, true)
+  }, [interfaceSoundsEnabled])
+
+  const toggleInterfaceSounds = useCallback(() => {
+    setInterfaceSoundsEnabled((current) => !current)
+  }, [])
+
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={{
+      theme,
+      toggleTheme,
+      interfaceSoundsEnabled,
+      toggleInterfaceSounds,
+    }}>
       {children}
     </ThemeContext.Provider>
   )
@@ -73,5 +116,19 @@ export function ThemeToggleButton() {
           : <path d="M20.8 14.2A8.7 8.7 0 0 1 9.8 3.2 8.8 8.8 0 1 0 20.8 14.2Z" />}
       </svg>
     </button>
+  )
+}
+
+export function InterfaceSoundToggle() {
+  const { interfaceSoundsEnabled, toggleInterfaceSounds } = useTheme()
+  return (
+    <button
+      type="button"
+      className={`notification-switch${interfaceSoundsEnabled ? ' is-on' : ''}`}
+      role="switch"
+      aria-checked={interfaceSoundsEnabled}
+      aria-label="Activar sonidos de interacciones"
+      onClick={toggleInterfaceSounds}
+    ><span /></button>
   )
 }

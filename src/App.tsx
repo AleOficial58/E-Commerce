@@ -1062,10 +1062,12 @@ function Storefront() {
   const saveQueue = useRef<Promise<void>>(Promise.resolve())
   const knownAdminOrderIds = useRef<Set<string> | null>(null)
   const clearedPaymentOrderIds = useRef<Set<string>>(new Set())
+  const paymentReturnNotifiedOrderIds = useRef<Set<string>>(new Set())
   const orderSnapshots = useRef(new Map<string, {
     status: string
     paymentStatus: string
     shipmentStage?: string | null
+    shipmentStageDetail?: string | null
   }>())
   const notificationStore = useNotificationStore(user?.uid ?? null)
   const { addNotification } = notificationStore
@@ -1100,10 +1102,18 @@ function Storefront() {
                 : 'Estado de pago actualizado')
         }
         addNotification({
-          id: `order-update:${order.id}:${order.status}:${order.paymentStatus}`,
+          id: order.paymentStatus === 'approved'
+            ? `payment-confirmed:${order.id}`
+            : `order-update:${order.id}:${order.status}:${order.paymentStatus}`,
           kind: 'order',
-          title: 'Actualización de tu compra',
-          message: `Pedido ${order.id.slice(0, 8).toLocaleUpperCase('es-AR')} · ${changes.join(' · ')}.`,
+          title: order.paymentStatus === 'approved'
+            ? order.status === 'payment_review' ? 'Pago acreditado · compra en revisión' : '¡Compra confirmada!'
+            : 'Actualización de tu compra',
+          message: order.paymentStatus === 'approved'
+            ? order.status === 'payment_review'
+                ? `Recibimos el pago del pedido ${order.id.slice(0, 8).toLocaleUpperCase('es-AR')}. Te avisaremos cuando termine la revisión.`
+                : `Tu pago fue acreditado. Estamos preparando el pedido ${order.id.slice(0, 8).toLocaleUpperCase('es-AR')}.`
+            : `Pedido ${order.id.slice(0, 8).toLocaleUpperCase('es-AR')} · ${changes.join(' · ')}.`,
           createdAt: new Date().toISOString(),
           orderId: order.id,
         })
@@ -1111,10 +1121,13 @@ function Storefront() {
       if (
         order.shipmentStage !== undefined &&
         previous.shipmentStage !== undefined &&
-        previous.shipmentStage !== order.shipmentStage
+        (
+          previous.shipmentStage !== order.shipmentStage ||
+          previous.shipmentStageDetail !== order.shipmentStageDetail
+        )
       ) {
         addNotification({
-          id: `shipment-update:${order.id}:${order.shipmentStage ?? 'sin-etapa'}`,
+          id: `shipment-update:${order.id}:${order.shipmentStage ?? 'sin-etapa'}:${order.shipmentStageDetail ?? ''}`,
           kind: 'order',
           title: 'Novedad en tu envío',
           message: order.shipmentStageDetail || getShipmentStageLabel(order.shipmentStage ?? ''),
@@ -1130,6 +1143,11 @@ function Storefront() {
         ? { shipmentStage: order.shipmentStage }
         : previous?.shipmentStage !== undefined
           ? { shipmentStage: previous.shipmentStage }
+          : {}),
+      ...(order.shipmentStageDetail !== undefined
+        ? { shipmentStageDetail: order.shipmentStageDetail }
+        : previous?.shipmentStageDetail !== undefined
+          ? { shipmentStageDetail: previous.shipmentStageDetail }
           : {}),
     })
   }, [addNotification])
@@ -1237,10 +1255,32 @@ function Storefront() {
       const { paymentStatus, status } = result.order
       setPaymentReturnOrder(result.order)
       if (paymentStatus === 'approved' && status === 'payment_review') {
+        if (!paymentReturnNotifiedOrderIds.current.has(paymentReturnOrderId)) {
+          paymentReturnNotifiedOrderIds.current.add(paymentReturnOrderId)
+          addNotification({
+            id: `payment-confirmed:${paymentReturnOrderId}`,
+            kind: 'order',
+            title: 'Pago acreditado · compra en revisión',
+            message: `Recibimos el pago del pedido ${paymentReturnOrderId.slice(0, 8).toLocaleUpperCase('es-AR')}. Te avisaremos cuando termine la revisión.`,
+            createdAt: new Date().toISOString(),
+            orderId: paymentReturnOrderId,
+          })
+        }
         setPaymentReturnStatus('review')
         return
       }
       if (paymentStatus === 'approved') {
+        if (!paymentReturnNotifiedOrderIds.current.has(paymentReturnOrderId)) {
+          paymentReturnNotifiedOrderIds.current.add(paymentReturnOrderId)
+          addNotification({
+            id: `payment-confirmed:${paymentReturnOrderId}`,
+            kind: 'order',
+            title: '¡Compra confirmada!',
+            message: `Tu pago fue acreditado. Estamos preparando el pedido ${paymentReturnOrderId.slice(0, 8).toLocaleUpperCase('es-AR')}.`,
+            createdAt: new Date().toISOString(),
+            orderId: paymentReturnOrderId,
+          })
+        }
         if (!clearedPaymentOrderIds.current.has(paymentReturnOrderId)) {
           clearedPaymentOrderIds.current.add(paymentReturnOrderId)
           setCart((current) => {
@@ -1283,7 +1323,38 @@ function Storefront() {
       active = false
       unsubscribe()
     }
-  }, [authLoading, observeOrder, paymentRefreshCount, paymentReturnOrderId, paymentReturnPaymentId, user])
+  }, [addNotification, authLoading, observeOrder, paymentRefreshCount, paymentReturnOrderId, paymentReturnPaymentId, user])
+
+  useEffect(() => {
+    if (!user || authLoading || customerOrdersPageOpen || selectedCustomerOrderId || paymentReturnOrderId) return
+    let active = true
+    let timeout: number | undefined
+    const refreshOrderSnapshots = async () => {
+      if (document.visibilityState === 'visible') {
+        try {
+          const orders = await loadCustomerOrders(user)
+          if (!active) return
+          orders.forEach(observeOrder)
+        } catch (error) {
+          if (active) console.error('No se pudieron revisar las novedades de tus compras.', error)
+        }
+      }
+      if (active) timeout = window.setTimeout(() => void refreshOrderSnapshots(), 15_000)
+    }
+    const refreshOnVisible = () => {
+      if (document.visibilityState === 'visible') {
+        if (timeout !== undefined) window.clearTimeout(timeout)
+        void refreshOrderSnapshots()
+      }
+    }
+    void refreshOrderSnapshots()
+    document.addEventListener('visibilitychange', refreshOnVisible)
+    return () => {
+      active = false
+      if (timeout !== undefined) window.clearTimeout(timeout)
+      document.removeEventListener('visibilitychange', refreshOnVisible)
+    }
+  }, [authLoading, customerOrdersPageOpen, observeOrder, paymentReturnOrderId, selectedCustomerOrderId, user])
 
   useEffect(() => {
     if (!customerOrdersPageOpen || !user) return

@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from 'react'
+import { playNotificationSound } from './interfaceSounds'
 
 export type StoreNotification = {
   id: string
@@ -35,29 +36,31 @@ function readState(key: string): NotificationState {
   try {
     return parseState(window.localStorage.getItem(key))
   } catch {
-    return { items: [], soundEnabled: false }
+    return { items: [], soundEnabled: true }
   }
 }
 
 function parseState(raw: string | null): NotificationState {
   try {
     const value: unknown = JSON.parse(raw ?? 'null')
-    if (typeof value !== 'object' || value === null) return { items: [], soundEnabled: false }
+    if (typeof value !== 'object' || value === null) return { items: [], soundEnabled: true }
     const items = 'items' in value && Array.isArray(value.items)
       ? value.items.filter(isNotification).slice(0, MAX_NOTIFICATIONS)
       : []
     return {
       items,
-      soundEnabled: 'soundEnabled' in value && value.soundEnabled === true,
+      soundEnabled: 'soundEnabled' in value && typeof value.soundEnabled === 'boolean'
+        ? value.soundEnabled
+        : true,
     }
   } catch {
-    return { items: [], soundEnabled: false }
+    return { items: [], soundEnabled: true }
   }
 }
 
 function getState(key: string): NotificationState {
   if (!stateCache.has(key)) stateCache.set(key, readState(key))
-  return stateCache.get(key) ?? { items: [], soundEnabled: false }
+  return stateCache.get(key) ?? { items: [], soundEnabled: true }
 }
 
 function publish(key: string) {
@@ -93,29 +96,6 @@ function updateState(key: string, update: (current: NotificationState) => Notifi
   publish(key)
 }
 
-function playNotificationTone() {
-  try {
-    const AudioContextConstructor = window.AudioContext
-    if (!AudioContextConstructor) return
-    const context = new AudioContextConstructor()
-    const oscillator = context.createOscillator()
-    const gain = context.createGain()
-    oscillator.type = 'sine'
-    oscillator.frequency.setValueAtTime(740, context.currentTime)
-    oscillator.frequency.setValueAtTime(960, context.currentTime + 0.075)
-    gain.gain.setValueAtTime(0.0001, context.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.12, context.currentTime + 0.018)
-    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.18)
-    oscillator.connect(gain)
-    gain.connect(context.destination)
-    oscillator.start()
-    oscillator.stop(context.currentTime + 0.19)
-    oscillator.onended = () => void context.close()
-  } catch {
-    // Audio is optional and may be unavailable or blocked by the browser.
-  }
-}
-
 export function useNotificationStore(userId: string | null) {
   const storageKey = `${STORAGE_PREFIX}${userId || 'guest'}`
   const state = useSyncExternalStore(
@@ -136,7 +116,7 @@ export function useNotificationStore(userId: string | null) {
         items: [{ ...notification, read: false }, ...current.items].slice(0, MAX_NOTIFICATIONS),
       }
     })
-    if (wasAdded && shouldPlaySound) playNotificationTone()
+    if (wasAdded && shouldPlaySound) playNotificationSound()
   }, [storageKey])
 
   const markRead = useCallback((id: string) => {

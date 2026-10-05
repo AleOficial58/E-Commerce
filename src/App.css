@@ -7445,6 +7445,71 @@ html[data-theme='dark'] .swal2-select {
   gap: 10px;
 }
 
+button,
+a[href],
+summary {
+  transition:
+    color .18s ease,
+    background-color .18s ease,
+    border-color .18s ease,
+    box-shadow .2s ease,
+    transform .18s cubic-bezier(.2, .7, .2, 1);
+}
+
+button:active:not(:disabled),
+a[href]:active {
+  transform: scale(.975);
+}
+
+html[data-theme='dark'] {
+  transition: background-color .24s ease, color .24s ease;
+}
+
+@media (max-width: 360px) {
+  .site-header {
+    height: auto;
+    min-height: 68px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    gap: 4px;
+    padding: 7px 10px;
+  }
+
+  .site-header > .wordmark {
+    grid-column: 1;
+    grid-row: 1;
+    font-size: 24px;
+  }
+
+  .header-actions {
+    width: 100%;
+    grid-column: 1;
+    grid-row: 2;
+    justify-content: space-between;
+    gap: 2px;
+  }
+
+  .header-actions > .icon-button,
+  .header-actions .notification-center > .icon-button {
+    width: 32px;
+    height: 32px;
+  }
+
+  .header-actions > .admin-shortcut {
+    display: none;
+  }
+
+  .header-actions .notification-badge,
+  .header-actions .bag-count {
+    border-color: #fffdfb;
+  }
+
+  html[data-theme='dark'] .header-actions .notification-badge,
+  html[data-theme='dark'] .header-actions .bag-count {
+    border-color: #201c22;
+  }
+}
+
 @media (max-width: 700px) {
   .admin-review-media {
     padding: 19px 16px 25px;
