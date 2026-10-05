@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { User } from 'firebase/auth'
 import Swal from 'sweetalert2'
@@ -49,6 +49,7 @@ import {
   type ProductReviewsResult,
   type ReviewSummary,
 } from './lib/reviewsApi'
+import { uploadAdminProductImage } from './lib/adminProductApi'
 import { AuthActionPage } from './components/AuthActionPage'
 import { CustomerOrdersPage } from './components/CustomerOrdersPage'
 import { OrderStatusPage } from './components/OrderStatusPage'
@@ -320,6 +321,13 @@ const emptyAdminProductDraft: AdminProductDraft = {
   galleryImages: '',
   characteristics: [],
   specifications: [],
+}
+
+function getAdminProductImages(draft: Pick<AdminProductDraft, 'image' | 'galleryImages'>): string[] {
+  return Array.from(new Set([
+    draft.image.trim(),
+    ...draft.galleryImages.split(/\r?\n/).map((url) => url.trim()),
+  ].filter(Boolean)))
 }
 
 function readProductAttributes(value: unknown): ProductAttribute[] {
@@ -1032,6 +1040,7 @@ function Storefront() {
   const [heroPaused, setHeroPaused] = useState(false)
   const [announcementIndex, setAnnouncementIndex] = useState(0)
   const [announcementPaused, setAnnouncementPaused] = useState(false)
+  const [shoppingGuideOpen, setShoppingGuideOpen] = useState(false)
   const [productSort, setProductSort] = useState<ProductSort>('recommended')
   const [saleOnly, setSaleOnly] = useState(false)
   const [favorites, setFavorites] = useState<string[]>(() => readGuestStore().favorites)
@@ -1098,6 +1107,7 @@ function Storefront() {
   const [adminRevokeBusy, setAdminRevokeBusy] = useState(false)
   const [adminProductDraft, setAdminProductDraft] = useState<AdminProductDraft>(emptyAdminProductDraft)
   const [adminProductBusy, setAdminProductBusy] = useState(false)
+  const [adminProductUploadBusy, setAdminProductUploadBusy] = useState(false)
   const [adminEditingProductId, setAdminEditingProductId] = useState<string | null>(null)
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'reset'>('login')
   const [authLoading, setAuthLoading] = useState(firebaseReady)
@@ -1116,6 +1126,9 @@ function Storefront() {
   const [customerProfileError, setCustomerProfileError] = useState('')
   const [profileEditorOpen, setProfileEditorOpen] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const shoppingGuideTriggerRef = useRef<HTMLButtonElement>(null)
+  const shoppingGuideCloseRef = useRef<HTMLButtonElement>(null)
+  const shoppingGuideDialogRef = useRef<HTMLElement>(null)
   const adminDashboardRef = useRef<HTMLElement>(null)
   const adminPreviousFocus = useRef<HTMLElement | null>(null)
   const saveQueue = useRef<Promise<void>>(Promise.resolve())
@@ -1135,7 +1148,7 @@ function Storefront() {
   const notificationStore = useNotificationStore(user?.uid ?? null)
   const { addNotification } = notificationStore
   const hasBlockingOverlay = authOpen || accountOpen || cartOpen || checkoutOpen ||
-    profileEditorOpen
+    profileEditorOpen || shoppingGuideOpen
 
   useEffect(() => {
     try {
@@ -1251,6 +1264,47 @@ function Storefront() {
   useEffect(() => {
     if (mobileSearchOpen) searchInputRef.current?.focus()
   }, [mobileSearchOpen])
+
+  useEffect(() => {
+    if (!shoppingGuideOpen) return
+
+    const previousFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null
+    shoppingGuideCloseRef.current?.focus()
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setShoppingGuideOpen(false)
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const dialog = shoppingGuideDialogRef.current
+      if (!dialog) return
+      const focusable = [...dialog.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      )].filter((element) => element.getClientRects().length > 0)
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (!first || !last) {
+        event.preventDefault()
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      if (previousFocus?.isConnected) previousFocus.focus()
+    }
+  }, [shoppingGuideOpen])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -2408,11 +2462,12 @@ function Storefront() {
       .replace(/^-|-$/g, '')
     const category = String(formData.get('category') ?? '')
     const description = String(formData.get('description') ?? '').trim()
-    const image = String(formData.get('image') ?? '').trim()
+    const image = adminProductDraft.image.trim()
     const images = adminProductDraft.galleryImages
       .split(/\r?\n/)
       .map((url) => url.trim())
       .filter(Boolean)
+    const uniqueImageCount = new Set([image, ...images].filter(Boolean)).size
     const price = Number(formData.get('price'))
     const stock = Number(formData.get('stock'))
     const validAttributes = (attributes: ProductAttribute[]) =>
@@ -2425,6 +2480,7 @@ function Storefront() {
       )
     if (
       !id ||
+      id.length > 80 ||
       !name ||
       !description ||
       description.length > 5000 ||
@@ -2439,11 +2495,13 @@ function Storefront() {
       !image.startsWith('https://') ||
       image.length > 2048 ||
       images.length > 7 ||
+      uniqueImageCount < 5 ||
+      uniqueImageCount !== images.length + 1 ||
       images.some((url) => !url.startsWith('https://') || url.length > 2048) ||
       !validAttributes(adminProductDraft.characteristics) ||
       !validAttributes(adminProductDraft.specifications)
     ) {
-      setAdminError('Revisá los campos: imágenes HTTPS (hasta 8 en total), descripción de hasta 5000 caracteres y hasta 30 atributos por sección.')
+      setAdminError('Revisá los campos: agregá entre 5 y 8 fotos HTTPS distintas, una descripción de hasta 5000 caracteres y hasta 30 atributos por sección.')
       return
     }
 
@@ -2491,6 +2549,81 @@ function Storefront() {
       setAdminError(error instanceof Error ? error.message : 'No se pudo guardar el producto.')
     } finally {
       setAdminProductBusy(false)
+    }
+  }
+
+  async function handleAdminProductImageUpload(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget
+    const files = Array.from(input.files ?? [])
+    input.value = ''
+    if (!files.length || !user || !isAdmin || adminProductUploadBusy || adminProductBusy) return
+
+    const existingImages = Array.from(new Set([
+      adminProductDraft.image.trim(),
+      ...adminProductDraft.galleryImages.split(/\r?\n/).map((url) => url.trim()),
+    ].filter(Boolean)))
+    if (files.length > 8 - existingImages.length) {
+      setAdminError(`Este producto admite hasta 8 fotos en total; ahora hay ${existingImages.length}.`)
+      return
+    }
+    if (files.some((file) =>
+      !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ||
+      file.size < 1 ||
+      file.size > 8 * 1024 * 1024,
+    )) {
+      setAdminError('Usá imágenes JPEG, PNG o WebP de hasta 8 MB cada una.')
+      return
+    }
+
+    const productId = adminEditingProductId ?? adminProductDraft.name
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLocaleLowerCase('es-AR')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+    if (!productId || productId.length > 80) {
+      setAdminError('Ingresá un nombre de producto válido antes de cargar sus fotos.')
+      return
+    }
+
+    setAdminProductUploadBusy(true)
+    setAdminError('')
+    const uploadedUrls: string[] = []
+    let uploadError = ''
+    try {
+      for (const file of files) {
+        try {
+          uploadedUrls.push(await uploadAdminProductImage(user, productId, file))
+        } catch (error) {
+          uploadError = error instanceof Error ? error.message : 'No se pudo cargar una de las imágenes.'
+          break
+        }
+      }
+      if (uploadedUrls.length) {
+        setAdminProductDraft((current) => {
+          const allImages = Array.from(new Set([
+            current.image.trim(),
+            ...current.galleryImages.split(/\r?\n/).map((url) => url.trim()),
+            ...uploadedUrls,
+          ].filter(Boolean)))
+          const image = current.image.trim() || allImages[0]
+          return {
+            ...current,
+            image,
+            galleryImages: allImages.filter((url) => url !== image).join('\n'),
+          }
+        })
+        if (!uploadError) {
+          setNotice(`Se cargaron ${uploadedUrls.length} ${uploadedUrls.length === 1 ? 'foto' : 'fotos'} del producto.`)
+        }
+      }
+      if (uploadError) {
+        setAdminError(uploadedUrls.length
+          ? `Se cargaron ${uploadedUrls.length} de ${files.length} fotos. ${uploadError}`
+          : uploadError)
+      }
+    } finally {
+      setAdminProductUploadBusy(false)
     }
   }
 
@@ -3096,7 +3229,12 @@ function Storefront() {
       <section className="category-discovery section-wrap" aria-labelledby="category-discovery-title">
         <div className="discovery-heading">
           <div><span className="eyebrow section-eyebrow">UN UNIVERSO PARA EXPLORAR</span><h2 id="category-discovery-title">¿Qué detalle buscás?</h2></div>
-          <a className="text-link" href="#productos">Ver todo el catálogo <Icon name="arrow" size={15} /></a>
+          <div className="discovery-actions">
+            <button className="text-link shopping-guide-trigger" type="button" ref={shoppingGuideTriggerRef} onClick={() => setShoppingGuideOpen(true)}>
+              ¿Primera vez? Cómo comprar
+            </button>
+            <a className="text-link" href="#productos">Ver todo el catálogo <Icon name="arrow" size={15} /></a>
+          </div>
         </div>
         <div className="category-discovery-grid">
           {categories.slice(1).map((category) => {
@@ -3770,15 +3908,83 @@ function Storefront() {
               </section>
             ) : adminTab === 'products' ? (
               <section className="admin-products">
-                <div className="admin-section-heading"><div><h3>{adminEditingProductId ? 'Editar publicación' : 'Publicar un producto'}</h3><p>Usá URLs públicas HTTPS para las imágenes; no se suben archivos a Firebase.</p></div></div>
+                <div className="admin-section-heading"><div><h3>{adminEditingProductId ? 'Editar publicación' : 'Publicar un producto'}</h3><p>Subí fotos reales y distintas del producto a Cloudinary. Cada publicación necesita al menos 5 y admite hasta 8.</p></div></div>
                 <form className="admin-product-form" onSubmit={(event) => void handleAdminProductSave(event)}>
-                  <label>Nombre<input name="name" value={adminProductDraft.name} onChange={(event) => setAdminProductDraft((current) => ({ ...current, name: event.target.value }))} maxLength={100} required /></label>
+                  <label>Nombre<input name="name" value={adminProductDraft.name} onChange={(event) => setAdminProductDraft((current) => ({ ...current, name: event.target.value }))} maxLength={100} required disabled={adminProductUploadBusy} /></label>
                   <label>Categoría<select name="category" value={adminProductDraft.category} onChange={(event) => setAdminProductDraft((current) => ({ ...current, category: event.target.value }))}><option>Bijou</option><option>Accesorios</option><option>Bolsos</option><option>Cabello</option></select></label>
                   <label>Precio (ARS)<input name="price" type="number" min="1" step="1" value={adminProductDraft.price} onChange={(event) => setAdminProductDraft((current) => ({ ...current, price: event.target.value }))} required /></label>
                   <label>Stock<input name="stock" type="number" min="0" step="1" value={adminProductDraft.stock} onChange={(event) => setAdminProductDraft((current) => ({ ...current, stock: event.target.value }))} required /></label>
                   <label className="admin-product-full">Descripción amplia<textarea name="description" value={adminProductDraft.description} onChange={(event) => setAdminProductDraft((current) => ({ ...current, description: event.target.value }))} maxLength={5000} rows={5} required /></label>
-                  <label className="admin-product-full">URL de imagen principal<input name="image" type="url" placeholder="https://…" value={adminProductDraft.image} onChange={(event) => setAdminProductDraft((current) => ({ ...current, image: event.target.value }))} required /></label>
-                  <label className="admin-product-full">Fotos adicionales<textarea value={adminProductDraft.galleryImages} onChange={(event) => setAdminProductDraft((current) => ({ ...current, galleryImages: event.target.value }))} placeholder={'Una URL HTTPS por línea\nhttps://…'} rows={3} /></label>
+                  <fieldset className="admin-product-gallery-editor admin-product-full">
+                    <legend>Fotos del producto</legend>
+                    <p>Elegí tomas auténticas desde distintos ángulos; no uses copias de la misma imagen.</p>
+                    <label className="admin-product-upload-label">Agregar fotos desde tu dispositivo
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        multiple
+                        onChange={(event) => void handleAdminProductImageUpload(event)}
+                        disabled={adminProductUploadBusy || adminProductBusy || getAdminProductImages(adminProductDraft).length >= 8}
+                        aria-describedby="admin-product-upload-help"
+                      />
+                    </label>
+                    <small id="admin-product-upload-help">JPEG, PNG o WebP; hasta 8 MB por foto. Las cargas van a Cloudinary.</small>
+                    <div className="admin-product-image-count" role="status">
+                      {getAdminProductImages(adminProductDraft).length} de 5 fotos mínimas · máximo 8
+                      {adminProductUploadBusy && <span> Cargando fotos…</span>}
+                    </div>
+                    {getAdminProductImages(adminProductDraft).length > 0 && (
+                      <div className="admin-product-image-list">
+                        {getAdminProductImages(adminProductDraft).map((imageUrl, index) => (
+                          <article className="admin-product-image-card" key={`${imageUrl}-${index}`}>
+                            <img src={imageUrl} alt={`${adminProductDraft.name || 'Producto'}, foto ${index + 1}`} />
+                            <div className="admin-product-image-card-actions">
+                              <span>{index === 0 ? 'Portada' : `Foto ${index + 1}`}</span>
+                              {index > 0 && (
+                                <button
+                                  type="button"
+                                  className="auth-switch"
+                                  onClick={() => setAdminProductDraft((current) => ({
+                                    ...current,
+                                    image: imageUrl,
+                                    galleryImages: getAdminProductImages(current).filter((url) => url !== imageUrl).join('\n'),
+                                  }))}
+                                  disabled={adminProductUploadBusy}
+                                >Usar de portada</button>
+                              )}
+                              <button
+                                type="button"
+                                className="auth-switch"
+                                aria-label={`Quitar foto ${index + 1}`}
+                                onClick={() => setAdminProductDraft((current) => {
+                                  const remaining = getAdminProductImages(current).filter((url) => url !== imageUrl)
+                                  const image = current.image === imageUrl ? remaining[0] ?? '' : current.image
+                                  return {
+                                    ...current,
+                                    image,
+                                    galleryImages: remaining.filter((url) => url !== image).join('\n'),
+                                  }
+                                })}
+                                disabled={adminProductUploadBusy}
+                              >Quitar</button>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                    <label className="admin-product-full">URL de portada o URLs adicionales (opcional, una HTTPS por línea)
+                      <textarea
+                        value={[adminProductDraft.image, adminProductDraft.galleryImages].filter(Boolean).join('\n')}
+                        onChange={(event) => {
+                          const [image = '', ...images] = event.target.value.split(/\r?\n/)
+                          setAdminProductDraft((current) => ({ ...current, image, galleryImages: images.join('\n') }))
+                        }}
+                        placeholder={'https://… (una URL por línea)'}
+                        rows={3}
+                        disabled={adminProductUploadBusy}
+                      />
+                    </label>
+                  </fieldset>
                   <fieldset className="admin-product-attributes admin-product-full">
                     <legend>Características generales</legend>
                     <p>Agregá solo datos confirmados del producto.</p>
@@ -3804,8 +4010,8 @@ function Storefront() {
                     <button type="button" className="auth-switch admin-attribute-add" disabled={adminProductDraft.specifications.length >= 30} onClick={() => setAdminProductDraft((current) => ({ ...current, specifications: [...current.specifications, { label: '', value: '' }] }))}>+ Agregar especificación</button>
                   </fieldset>
                   <div className="admin-product-actions admin-product-full">
-                    {adminEditingProductId && <button type="button" className="auth-switch" onClick={() => { setAdminEditingProductId(null); setAdminProductDraft(emptyAdminProductDraft) }}>Cancelar edición</button>}
-                    <button className="button button-dark profile-save-button" type="submit" disabled={adminProductBusy}>{adminProductBusy ? <><span className="button-spinner" aria-hidden="true" /> Guardando…</> : adminEditingProductId ? 'Guardar cambios' : 'Publicar producto'}</button>
+                    {adminEditingProductId && <button type="button" className="auth-switch" disabled={adminProductUploadBusy || adminProductBusy} onClick={() => { setAdminEditingProductId(null); setAdminProductDraft(emptyAdminProductDraft) }}>Cancelar edición</button>}
+                    <button className="button button-dark profile-save-button" type="submit" disabled={adminProductBusy || adminProductUploadBusy}>{adminProductBusy ? <><span className="button-spinner" aria-hidden="true" /> Guardando…</> : adminProductUploadBusy ? <><span className="button-spinner" aria-hidden="true" /> Cargando fotos…</> : adminEditingProductId ? 'Guardar cambios' : 'Publicar producto'}</button>
                   </div>
                 </form>
                 <div className="admin-product-list">
@@ -3892,6 +4098,48 @@ function Storefront() {
               <div className="empty-cart"><span><Icon name="bag" size={30} /></span><h3>Tu bolso está esperando</h3><p>Hay muchos detalles lindos para descubrir.</p><button className="button button-dark" onClick={() => { setCartOpen(false); document.getElementById('productos')?.scrollIntoView({ behavior: 'smooth' }) }}>Explorar productos <Icon name="arrow" size={17} /></button></div>
             )}
           </aside>
+        </div>
+      )}
+
+      {shoppingGuideOpen && (
+        <div className="shopping-guide-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setShoppingGuideOpen(false) }}>
+          <section
+            className="shopping-guide-dialog"
+            ref={shoppingGuideDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="shopping-guide-title"
+            aria-describedby="shopping-guide-description"
+            tabIndex={-1}
+          >
+            <button className="icon-button shopping-guide-close" type="button" ref={shoppingGuideCloseRef} onClick={() => setShoppingGuideOpen(false)} aria-label="Cerrar guía de compra">
+              <Icon name="close" />
+            </button>
+            <span className="shopping-guide-mark" aria-hidden="true"><Icon name="sparkles" size={21} /></span>
+            <span className="eyebrow section-eyebrow">TU PRIMERA COMPRA</span>
+            <h2 id="shopping-guide-title">Comprar en Lúmina es simple</h2>
+            <p className="shopping-guide-intro" id="shopping-guide-description">Te acompañamos desde que encontrás tu favorito hasta que podés seguir el estado de tu pedido.</p>
+            <ol className="shopping-guide-steps">
+              <li>
+                <span className="shopping-guide-step-number">01</span>
+                <div><h3>Explorá y elegí</h3><p>Buscá por categoría o usá los filtros. En cada producto podés ver fotos, precio, stock y opiniones.</p></div>
+              </li>
+              <li>
+                <span className="shopping-guide-step-number">02</span>
+                <div><h3>Armá tu bolso</h3><p>Agregá tus favoritos y ajustá las cantidades. Antes de seguir, revisá el subtotal y el envío estimado.</p></div>
+              </li>
+              <li>
+                <span className="shopping-guide-step-number">03</span>
+                <div><h3>Pagá y seguí tu pedido</h3><p>Ingresá o creá tu cuenta, completá la entrega y pagá en Mercado Pago. Después podrás consultar el estado en “Mis compras”.</p></div>
+              </li>
+            </ol>
+            <button className="button button-dark shopping-guide-cta" type="button" onClick={() => {
+              setShoppingGuideOpen(false)
+              window.requestAnimationFrame(() => document.getElementById('productos')?.scrollIntoView({ behavior: 'smooth' }))
+            }}>
+              Empezar a explorar <Icon name="arrow" size={17} />
+            </button>
+          </section>
         </div>
       )}
     </div>

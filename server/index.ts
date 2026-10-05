@@ -1,7 +1,7 @@
 import './env.js'
 import cors from 'cors'
 import express, { type NextFunction, type Request, type Response } from 'express'
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { rateLimit } from 'express-rate-limit'
 import helmet from 'helmet'
 import { existsSync } from 'node:fs'
@@ -171,6 +171,14 @@ const reviewMediaLimiter = rateLimit({
   message: { error: 'Hubo varias cargas de archivos. Esperá unos minutos antes de volver a intentarlo.' },
 })
 
+const adminProductImageLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 100,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Hubo muchas cargas de imágenes. Esperá unos minutos antes de volver a intentarlo.' },
+})
+
 function requireFirebaseServices(_request: Request, _response: Response, next: NextFunction) {
   if (!firebaseConfigured) {
     next(new ApiError('La API todavía no tiene credenciales de Firebase Admin configuradas.', 503))
@@ -284,7 +292,7 @@ const reviewMediaLimits = {
   uploadLifetimeMs: 24 * 60 * 60 * 1000,
 }
 const cloudinaryNotConfiguredMessage =
-  'Las fotos y videos de opiniones no están configurados. La opinión de texto sigue disponible.'
+  'La carga de archivos multimedia no está configurada.'
 let activeReviewUploads = 0
 let pendingOrderCleanupCursor: string | null = null
 
@@ -479,6 +487,27 @@ function parseReviewMediaRequest(
           : file.length >= 12 && file.toString('ascii', 4, 8) === 'ftyp'
   if (!validSignature) throw new ApiError('El contenido real del archivo no coincide con el formato declarado.', 400)
   return { type, contentType, fileSize: file.length }
+}
+
+function parseProductImageRequest(contentTypeHeader: string, file: Buffer): {
+  contentType: string
+  fileSize: number
+} {
+  const contentType = contentTypeHeader.toLowerCase().split(';')[0].trim()
+  const validType = ['image/jpeg', 'image/png', 'image/webp'].includes(contentType)
+  if (!validType || file.length < 1 || file.length > 8 * 1024 * 1024) {
+    throw new ApiError('Usá imágenes JPEG, PNG o WebP de hasta 8 MB.', 400)
+  }
+  const validSignature =
+    contentType === 'image/jpeg'
+      ? file.length >= 3 && file[0] === 0xff && file[1] === 0xd8 && file[2] === 0xff
+      : contentType === 'image/png'
+        ? file.length >= 8 && file.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+        : file.length >= 12 && file.toString('ascii', 0, 4) === 'RIFF' && file.toString('ascii', 8, 12) === 'WEBP'
+  if (!validSignature) {
+    throw new ApiError('El contenido real del archivo no coincide con el formato declarado.', 400)
+  }
+  return { contentType, fileSize: file.length }
 }
 
 function getProductSnapshot(data: Record<string, unknown>, productId: string) {
@@ -1991,6 +2020,91 @@ app.get('/api/reviews/summary', async (_request, response, next) => {
     next(error)
   }
 })
+
+app.post(
+  '/api/admin/products/:productId/images',
+  adminProductImageLimiter,
+  requireFirebaseServices,
+  requireUser,
+  requireAdmin,
+  requireCloudinary,
+  express.raw({
+    type: ['image/jpeg', 'image/png', 'image/webp'],
+    limit: '8mb',
+  }),
+  async (request, response, next) => {
+    try {
+      const productId = typeof request.params.productId === 'string' ? request.params.productId : ''
+      if (!/^[a-z0-9-]{1,80}$/.test(productId)) {
+        throw new ApiError('El producto no es válido.', 400)
+      }
+      const fileBytes = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0)
+      const { contentType, fileSize } = parseProductImageRequest(
+        request.get('content-type') ?? '',
+        fileBytes,
+      )
+      const { cloudName, apiKey, apiSecret } = requireCloudinaryConfig()
+      const publicId = `products/${productId}/${randomUUID()}`
+      const timestamp = Math.floor(Date.now() / 1000)
+      const params = { public_id: publicId, timestamp, type: 'authenticated' }
+      const form = new FormData()
+      form.append('file', new Blob([new Uint8Array(fileBytes)], { type: contentType }), publicId)
+      for (const [key, value] of Object.entries(params)) form.append(key, String(value))
+      form.append('api_key', apiKey)
+      form.append('signature', cloudinaryApiSignature(params, apiSecret))
+      const cloudinaryResponse = await fetch(
+        `https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/image/upload`,
+        { method: 'POST', body: form, signal: AbortSignal.timeout(60_000) },
+      )
+      const cloudinaryResult = await cloudinaryResponse.json().catch(() => null) as
+        | {
+            public_id?: unknown
+            resource_type?: unknown
+            type?: unknown
+            bytes?: unknown
+            format?: unknown
+            error?: { message?: unknown }
+          }
+        | null
+      if (!cloudinaryResponse.ok) {
+        const providerError = typeof cloudinaryResult?.error?.message === 'string'
+          ? cloudinaryResult.error.message
+          : ''
+        console.error('Cloudinary rechazó una imagen de producto.', {
+          status: cloudinaryResponse.status,
+          error: providerError.slice(0, 300) || 'Cloudinary no devolvió un mensaje.',
+        })
+        if (
+          cloudinaryResponse.status === 402 ||
+          cloudinaryResponse.status === 420 ||
+          /credit|quota|monthly|free plan/i.test(providerError)
+        ) {
+          throw new ApiError(
+            'Cloudinary alcanzó el límite mensual del plan gratuito. La imagen no se cargó; intentá nuevamente cuando se renueve la cuota.',
+            503,
+          )
+        }
+        throw new ApiError('Cloudinary no pudo recibir la imagen. Volvé a intentar la carga.', 502)
+      }
+      if (
+        cloudinaryResult?.public_id !== publicId ||
+        cloudinaryResult.resource_type !== 'image' ||
+        cloudinaryResult.type !== 'authenticated' ||
+        cloudinaryResult.bytes !== fileSize ||
+        typeof cloudinaryResult.format !== 'string' ||
+        !['jpg', 'jpeg', 'png', 'webp'].includes(cloudinaryResult.format)
+      ) {
+        throw new ApiError('Cloudinary devolvió metadatos que no coinciden con la imagen.', 502)
+      }
+      response.set('Cache-Control', 'private, no-store')
+      response.status(201).json({
+        url: cloudinaryDeliveryUrl('image', publicId, cloudinaryResult.format),
+      })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
 
 app.post(
   '/api/products/:productId/reviews/media',
