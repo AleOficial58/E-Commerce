@@ -52,6 +52,15 @@ export type PendingReviewMediaPage = {
   hasMore: boolean
 }
 
+export type AdminProductReview = {
+  id: string
+  productId: string
+  productName: string
+  rating: number
+  comment: string
+  createdAt: string | null
+}
+
 async function requestJson<T>(
   endpoint: string,
   options: { user?: User | null; method?: 'DELETE' | 'GET' | 'PATCH' | 'POST'; body?: unknown } = {},
@@ -189,5 +198,21 @@ export function moderatePendingReviewMedia(
   return requestJson(
     `/api/admin/product-review-media/${encodeURIComponent(mediaId)}`,
     { user, method: 'PATCH', body: { action } },
+  )
+}
+
+export function loadAdminProductReviews(
+  user: User,
+): Promise<{ reviews: AdminProductReview[] }> {
+  return requestJson('/api/admin/product-reviews', { user })
+}
+
+export function deleteAdminProductReview(
+  user: User,
+  reviewId: string,
+): Promise<{ message: string; productId: string; summary: ReviewSummary }> {
+  return requestJson(
+    `/api/admin/product-reviews/${encodeURIComponent(reviewId)}`,
+    { user, method: 'DELETE' },
   )
 }

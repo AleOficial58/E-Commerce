@@ -113,7 +113,7 @@ Las alertas y los sonidos de interfaz se generan en el navegador mediante Web Au
 
 El catálogo inicial de demostración está en `src/data/products.ts`; las publicaciones creadas desde Admin se guardan en Firestore y se combinan con ese catálogo. Las imágenes de producto son URLs públicas HTTPS. Los cambios de favoritos, bolso, perfil, pedidos y publicaciones requieren las reglas de Firestore publicadas desde `firestore.rules`.
 
-Las opiniones se guardan en `productReviews` y sus promedios en `productReviewSummaries`. Los clientes solo pueden leerlas; la API valida la sesión, el email verificado y el registro privado `verifiedPurchases` creado al acreditar un pago antes de aceptar o editar una opinión. Las reseñas contienen puntuación y comentario de texto; no dependen de almacenamiento de archivos.
+Las opiniones se guardan en `productReviews` y sus promedios en `productReviewSummaries`. Los clientes solo pueden leerlas; la API valida la sesión, el email verificado y el registro privado `verifiedPurchases` creado al acreditar un pago antes de aceptar o editar una opinión. Desde Admin se pueden revisar y eliminar opiniones publicadas; al eliminarlas se actualizan los promedios y también se quitan sus adjuntos de Cloudinary. Las reseñas contienen puntuación y comentario de texto; no dependen de almacenamiento de archivos.
 
 La verificación se envía al registrarse; la app permite explorar y guardar mientras tanto y muestra el estado en **Mi cuenta**. Firebase Admin genera enlaces de acción de un solo uso y el servidor los envía en correos de marca mediante SMTP; las plantillas integradas de Firebase ya no se usan para estos dos flujos.
 

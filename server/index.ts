@@ -436,6 +436,16 @@ async function cleanupAbandonedReviewUploads() {
       moderatedAt: FieldValue.serverTimestamp(),
     })
   }))
+  const deleting = await collection.where('status', '==', 'deleting').limit(100).get()
+  await Promise.all(deleting.docs.map(async (document) => {
+    const type = document.get('type')
+    const publicId = document.get('publicId')
+    if ((type !== 'image' && type !== 'video') || typeof publicId !== 'string') {
+      throw new ApiError('Un archivo de opinión marcado para eliminar tiene una referencia no válida.', 409)
+    }
+    await destroyCloudinaryAsset(type, publicId)
+    await document.ref.delete()
+  }))
 }
 
 function parseReviewMediaRequest(
@@ -2113,10 +2123,21 @@ app.post(
       ) {
         throw new ApiError('Cloudinary devolvió metadatos que no coinciden con el archivo.', 502)
       }
-      await mediaRef.update({
-        status: 'pending',
-        uploadedAt: FieldValue.serverTimestamp(),
-        format: cloudinaryResult.format,
+      const uploadedMediaRef = mediaRef
+      if (!uploadedMediaRef) throw new ApiError('No se pudo reservar el archivo para la opinión.', 409)
+      await firestore.runTransaction(async (transaction) => {
+        const [reviewSnapshot, mediaSnapshot] = await Promise.all([
+          transaction.get(reviewRef),
+          transaction.get(uploadedMediaRef),
+        ])
+        if (!reviewSnapshot.exists || !mediaSnapshot.exists || mediaSnapshot.get('status') !== 'uploading') {
+          throw new ApiError('La opinión se eliminó o el archivo ya no está disponible.', 409)
+        }
+        transaction.update(uploadedMediaRef, {
+          status: 'pending',
+          uploadedAt: FieldValue.serverTimestamp(),
+          format: cloudinaryResult.format,
+        })
       })
       response.set('Cache-Control', 'private, no-store')
       response.status(201).json({
@@ -2539,6 +2560,152 @@ app.patch(
         })
       })
       response.json({ message: 'Se aprobó y publicó el archivo en su opinión.' })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
+
+app.get(
+  '/api/admin/product-reviews',
+  requireFirebaseServices,
+  requireUser,
+  requireAdmin,
+  async (_request, response, next) => {
+    try {
+      const snapshot = await firestore.collection('productReviews')
+        .orderBy('createdAt', 'desc')
+        .get()
+      const productIds = [...new Set(snapshot.docs.flatMap((document) => {
+        const productId = document.get('productId')
+        return typeof productId === 'string' ? [productId] : []
+      }))]
+      const productSnapshots = await Promise.all(productIds.map((productId) =>
+        firestore.doc(`products/${productId}`).get(),
+      ))
+      const productNames = new Map(productIds.map((productId, index) => {
+        const productSnapshot = productSnapshots[index]
+        const product = getProductSnapshot(
+          productSnapshot?.exists ? productSnapshot.data() ?? {} : {},
+          productId,
+        )
+        return [productId, product?.name ?? 'Producto no disponible']
+      }))
+      const reviews = snapshot.docs.map((document) => {
+        const data = document.data()
+        const productId = typeof data.productId === 'string' ? data.productId : ''
+        const createdAt = data.createdAt instanceof Timestamp
+          ? data.createdAt.toDate().toISOString()
+          : null
+        return {
+          id: document.id,
+          productId,
+          productName: productNames.get(productId) ?? 'Producto no disponible',
+          rating: typeof data.rating === 'number' ? data.rating : 0,
+          comment: typeof data.comment === 'string' ? data.comment : '',
+          createdAt,
+        }
+      })
+      response.set('Cache-Control', 'private, no-store')
+      response.json({ reviews })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
+
+app.delete(
+  '/api/admin/product-reviews/:reviewId',
+  authenticatedActionLimiter,
+  requireFirebaseServices,
+  requireUser,
+  requireAdmin,
+  async (request, response, next) => {
+    try {
+      const reviewId = typeof request.params.reviewId === 'string' ? request.params.reviewId : ''
+      if (!/^[a-f0-9]{64}$/.test(reviewId)) {
+        throw new ApiError('La opinión seleccionada no es válida.', 400)
+      }
+      const reviewRef = firestore.doc(`productReviews/${reviewId}`)
+      const result = await firestore.runTransaction(async (transaction) => {
+        const reviewSnapshot = await transaction.get(reviewRef)
+        if (!reviewSnapshot.exists) throw new ApiError('La opinión ya no existe.', 404)
+        const reviewData = reviewSnapshot.data() ?? {}
+        const productId = typeof reviewData.productId === 'string' ? reviewData.productId : ''
+        const rating = reviewData.rating
+        if (!/^[a-z0-9-]{1,80}$/.test(productId) ||
+          typeof rating !== 'number' || !Number.isInteger(rating) || rating < 1 || rating > 5
+        ) {
+          throw new ApiError('Los datos de la opinión no son válidos para eliminarla.', 409)
+        }
+        const summaryRef = firestore.doc(`productReviewSummaries/${productId}`)
+        const mediaQuery = firestore.collection('productReviewMedia').where('reviewId', '==', reviewId)
+        const [summarySnapshot, mediaSnapshot] = await Promise.all([
+          transaction.get(summaryRef),
+          transaction.get(mediaQuery),
+        ])
+        for (const mediaDocument of mediaSnapshot.docs) {
+          const mediaData = mediaDocument.data()
+          if (
+            mediaData.provider !== 'cloudinary' ||
+            (mediaData.type !== 'image' && mediaData.type !== 'video') ||
+            mediaData.publicId !== `reviews/${productId}/${reviewId}/${mediaDocument.id}`
+          ) {
+            throw new ApiError('La opinión tiene un archivo adjunto con referencia no válida.', 409)
+          }
+        }
+
+        const reviewCount = summarySnapshot.get('reviewCount')
+        const ratingAverage = summarySnapshot.get('ratingAverage')
+        const totalRating = summarySnapshot.get('totalRating')
+        const previousCount = typeof reviewCount === 'number' ? reviewCount : 0
+        const previousAverage = typeof ratingAverage === 'number' ? ratingAverage : 0
+        const previousTotal = typeof totalRating === 'number'
+          ? totalRating
+          : previousAverage * previousCount
+        const nextCount = Math.max(0, previousCount - 1)
+        const nextTotal = Math.max(0, previousTotal - rating)
+        const summary = {
+          ratingAverage: nextCount > 0 ? nextTotal / nextCount : 0,
+          reviewCount: nextCount,
+        }
+        transaction.delete(reviewRef)
+        if (summarySnapshot.exists && nextCount > 0) {
+          transaction.update(summaryRef, {
+            ratingAverage: summary.ratingAverage,
+            totalRating: nextTotal,
+            reviewCount: nextCount,
+            updatedAt: FieldValue.serverTimestamp(),
+          })
+        } else if (summarySnapshot.exists) {
+          transaction.delete(summaryRef)
+        }
+        for (const mediaDocument of mediaSnapshot.docs) {
+          transaction.update(mediaDocument.ref, {
+            status: 'deleting',
+            moderatedAt: FieldValue.serverTimestamp(),
+          })
+        }
+        return { productId, summary }
+      })
+
+      let cleanupPending = false
+      try {
+        await cleanupAbandonedReviewUploads()
+      } catch (error) {
+        cleanupPending = true
+        console.error('La opinión se eliminó, pero no se pudieron borrar todos sus adjuntos.', {
+          reviewId,
+          error: error instanceof Error ? error.message : 'Error desconocido.',
+        })
+      }
+      response.json({
+        message: cleanupPending
+          ? 'Se eliminó la opinión. Algunos archivos quedaron pendientes de eliminación y se reintentará su limpieza.'
+          : 'Se eliminó la opinión publicada y sus archivos adjuntos.',
+        productId: result.productId,
+        summary: result.summary,
+      })
     } catch (error) {
       next(error)
     }

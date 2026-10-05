@@ -36,11 +36,14 @@ import {
 import {
   loadProductReviews,
   loadPendingReviewMedia,
+  loadAdminProductReviews,
+  deleteAdminProductReview,
   loadReviewSummaries,
   moderatePendingReviewMedia,
   saveProductReview,
   uploadProductReviewMedia,
   type PendingReviewMedia,
+  type AdminProductReview,
   type ReviewMedia,
   type ProductReviewsResult,
   type ReviewSummary,
@@ -1027,8 +1030,10 @@ function Storefront() {
   const [adminOrders, setAdminOrders] = useState<AdminOrder[]>([])
   const [adminLoading, setAdminLoading] = useState(false)
   const [pendingReviewMedia, setPendingReviewMedia] = useState<PendingReviewMedia[]>([])
+  const [adminProductReviews, setAdminProductReviews] = useState<AdminProductReview[]>([])
   const [adminReviewMediaLoading, setAdminReviewMediaLoading] = useState(false)
   const [adminReviewMediaBusy, setAdminReviewMediaBusy] = useState('')
+  const [adminReviewDeleteBusy, setAdminReviewDeleteBusy] = useState('')
   const [adminReviewMediaRefresh, setAdminReviewMediaRefresh] = useState(0)
   const [adminReviewMediaCursor, setAdminReviewMediaCursor] = useState('')
   const [pendingReviewMediaNextCursor, setPendingReviewMediaNextCursor] = useState<string | null>(null)
@@ -1616,18 +1621,30 @@ function Storefront() {
   useEffect(() => {
     if (!adminOpen || !isAdmin || adminTab !== 'reviews' || !user) return
     let active = true
-    void loadPendingReviewMedia(user, adminReviewMediaCursor)
-      .then((page) => {
+    void Promise.allSettled([
+      loadPendingReviewMedia(user, adminReviewMediaCursor),
+      loadAdminProductReviews(user),
+    ])
+      .then(([mediaResult, reviewsResult]) => {
         if (!active) return
-        setPendingReviewMedia(page.media)
-        setPendingReviewMediaHasMore(page.hasMore)
-        setPendingReviewMediaNextCursor(page.nextCursor)
-        setAdminError('')
-      })
-      .catch((error: unknown) => {
-        if (!active) return
-        console.error('No se pudieron cargar los archivos pendientes de moderación.', error)
-        setAdminError(error instanceof Error ? error.message : 'No se pudieron cargar las opiniones pendientes.')
+        if (mediaResult.status === 'fulfilled') {
+          setPendingReviewMedia(mediaResult.value.media)
+          setPendingReviewMediaHasMore(mediaResult.value.hasMore)
+          setPendingReviewMediaNextCursor(mediaResult.value.nextCursor)
+        } else {
+          console.error('No se pudieron cargar los archivos pendientes de moderación.', mediaResult.reason)
+          setAdminError(mediaResult.reason instanceof Error
+            ? mediaResult.reason.message
+            : 'No se pudieron cargar los archivos pendientes.')
+        }
+        if (reviewsResult.status === 'fulfilled') {
+          setAdminProductReviews(reviewsResult.value.reviews)
+        } else {
+          console.error('No se pudieron cargar las opiniones para administración.', reviewsResult.reason)
+          setAdminError(reviewsResult.reason instanceof Error
+            ? reviewsResult.reason.message
+            : 'No se pudieron cargar las opiniones publicadas.')
+        }
       })
       .finally(() => {
         if (active) setAdminReviewMediaLoading(false)
@@ -2359,6 +2376,47 @@ function Storefront() {
       setAdminError(error instanceof Error ? error.message : 'No se pudo moderar el archivo.')
     } finally {
       setAdminReviewMediaBusy('')
+    }
+  }
+
+  async function handleAdminReviewDelete(review: AdminProductReview) {
+    if (!user || !isAdmin || adminReviewDeleteBusy) return
+    const confirmation = await Swal.fire({
+      title: '¿Eliminar esta opinión?',
+      text: 'Se quitará de la tienda y se eliminarán sus archivos adjuntos. Esta acción no se puede deshacer.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Eliminar opinión',
+      cancelButtonText: 'Cancelar',
+      reverseButtons: true,
+      customClass: {
+        popup: 'lumina-alert-popup',
+        title: 'lumina-alert-title',
+        htmlContainer: 'lumina-alert-text',
+        confirmButton: 'lumina-alert-confirm',
+        cancelButton: 'lumina-alert-cancel',
+        actions: 'lumina-alert-actions',
+      },
+      buttonsStyling: false,
+    })
+    if (!confirmation.isConfirmed) return
+
+    setAdminReviewDeleteBusy(review.id)
+    setAdminError('')
+    try {
+      const result = await deleteAdminProductReview(user, review.id)
+      setAdminProductReviews((current) => current.filter((item) => item.id !== review.id))
+      setReviewSummaries((current) => ({
+        ...current,
+        [result.productId]: result.summary,
+      }))
+      setPendingReviewMedia((current) => current.filter((media) => media.reviewId !== review.id))
+      setNotice(result.message)
+    } catch (error) {
+      console.error('No se pudo eliminar una opinión desde el panel de administración.', error)
+      setAdminError(error instanceof Error ? error.message : 'No se pudo eliminar la opinión.')
+    } finally {
+      setAdminReviewDeleteBusy('')
     }
   }
 
@@ -3325,7 +3383,7 @@ function Storefront() {
             </header>
             <nav className="admin-tabs" aria-label="Secciones de administración">
               <button className={adminTab === 'orders' ? 'active' : ''} onClick={() => setAdminTab('orders')}><Icon name="bag" size={16} /> Pedidos <span>{adminOrders.length}</span></button>
-              <button className={adminTab === 'reviews' ? 'active' : ''} onClick={() => { setAdminReviewMediaLoading(true); setAdminReviewMediaCursor(''); setAdminReviewMediaRefresh((current) => current + 1); setAdminTab('reviews') }}><Icon name="sparkles" size={16} /> Reseñas <span>{pendingReviewMedia.length}</span></button>
+              <button className={adminTab === 'reviews' ? 'active' : ''} onClick={() => { setAdminError(''); setAdminReviewMediaLoading(true); setAdminReviewMediaCursor(''); setAdminReviewMediaRefresh((current) => current + 1); setAdminTab('reviews') }}><Icon name="sparkles" size={16} /> Reseñas <span>{adminProductReviews.length}</span></button>
               <button className={adminTab === 'products' ? 'active' : ''} onClick={() => setAdminTab('products')}><Icon name="box" size={16} /> Productos <span>{catalog.filter((product) => product.active !== false).length}</span></button>
               <button className={adminTab === 'access' ? 'active' : ''} onClick={() => setAdminTab('access')}><Icon name="user" size={16} /> Accesos</button>
             </nav>
@@ -3403,9 +3461,33 @@ function Storefront() {
             ) : adminTab === 'reviews' ? (
               <section className="admin-review-media">
                 <div className="admin-section-heading">
-                  <div><h3>Archivos pendientes de revisión</h3><p>Solo se publican después de aprobarlos. Revisá que el contenido sea pertinente y no exponga datos personales. Las previsualizaciones usan enlaces protegidos de Cloudinary.</p></div>
+                  <div><h3>Opiniones de compradores</h3><p>Revisá las opiniones publicadas y eliminá las que no deban permanecer visibles. Los archivos nuevos requieren aprobación antes de publicarse.</p></div>
                   {adminReviewMediaLoading && <span className="sync-indicator" aria-label="Cargando archivos pendientes" />}
-                  <button type="button" className="auth-switch admin-review-media-refresh" onClick={() => { setAdminReviewMediaLoading(true); setAdminReviewMediaCursor(''); setAdminReviewMediaRefresh((current) => current + 1) }} disabled={adminReviewMediaLoading}>Actualizar</button>
+                  <button type="button" className="auth-switch admin-review-media-refresh" onClick={() => { setAdminError(''); setAdminReviewMediaLoading(true); setAdminReviewMediaCursor(''); setAdminReviewMediaRefresh((current) => current + 1) }} disabled={adminReviewMediaLoading}>Actualizar</button>
+                </div>
+                {adminProductReviews.length ? adminProductReviews.map((review) => (
+                  <article className="admin-review-entry" key={review.id}>
+                    <div className="admin-review-entry-heading">
+                      <div>
+                        <strong>{review.productName}</strong>
+                        <span>{review.createdAt ? new Date(review.createdAt).toLocaleString('es-AR') : 'Opinión verificada'} · {review.rating}/5 estrellas</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="admin-review-media-reject"
+                        onClick={() => void handleAdminReviewDelete(review)}
+                        disabled={Boolean(adminReviewDeleteBusy)}
+                      >
+                        {adminReviewDeleteBusy === review.id ? 'Eliminando…' : 'Eliminar opinión'}
+                      </button>
+                    </div>
+                    <p>{review.comment}</p>
+                  </article>
+                )) : !adminReviewMediaLoading && (
+                  <div className="admin-empty"><Icon name="sparkles" size={28} /><h3>No hay opiniones publicadas</h3><p>Las opiniones verificadas de clientes aparecerán acá para su administración.</p></div>
+                )}
+                <div className="admin-section-heading admin-review-pending-heading">
+                  <div><h3>Archivos pendientes de revisión</h3><p>Solo se publican después de aprobarlos. Revisá que no expongan datos personales.</p></div>
                 </div>
                 {pendingReviewMedia.length ? pendingReviewMedia.map((media) => (
                   <article className="admin-review-media-card" key={media.id}>
