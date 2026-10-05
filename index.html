@@ -5,22 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#fff8f2" />
     <meta name="description" content="Accesorios que dicen mucho de vos. Encontrá ese detalle que convierte cualquier día en uno especial." />
-    <script>
-      try {
-        const savedTheme = localStorage.getItem('lumina:theme')
-        const theme = savedTheme === 'light' || savedTheme === 'dark'
-          ? savedTheme
-          : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-        document.documentElement.dataset.theme = theme
-        document.querySelector('meta[name="theme-color"]')?.setAttribute(
-          'content',
-          theme === 'dark' ? '#171419' : '#fff8f2',
-        )
-      } catch {
-        document.documentElement.dataset.theme =
-          matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-      }
-    </script>
+    <script src="/theme-init.js"></script>
     <title>Lúmina — Un detalle, todo tu estilo</title>
   </head>
   <body>
