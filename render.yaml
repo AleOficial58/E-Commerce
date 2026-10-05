@@ -15,7 +15,11 @@ services:
         sync: false
       - key: FIREBASE_PROJECT_ID
         sync: false
-      - key: FIREBASE_STORAGE_BUCKET
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
         sync: false
       - key: MERCADO_PAGO_MODE
         value: sandbox
@@ -28,8 +32,6 @@ services:
       - key: VITE_FIREBASE_AUTH_DOMAIN
         sync: false
       - key: VITE_FIREBASE_PROJECT_ID
-        sync: false
-      - key: VITE_FIREBASE_STORAGE_BUCKET
         sync: false
       - key: VITE_FIREBASE_MESSAGING_SENDER_ID
         sync: false

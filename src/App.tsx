@@ -511,8 +511,10 @@ function ProductDetailPage({
       setComment(normalizedComment)
       onSummaryChange(product.id, result.summary)
       if (mediaErrors.length) {
-        setError(mediaErrors.join(' '))
-        setNotice(`${result.message} Los archivos que se pudieron cargar quedaron pendientes de aprobación.`)
+        setError(`La opinión de texto sí se guardó, pero algunos archivos no se pudieron adjuntar: ${mediaErrors.join(' ')}`)
+        setNotice(uploadedMedia.length
+          ? `${result.message} Los archivos cargados correctamente quedaron pendientes de aprobación.`
+          : result.message)
       } else if (uploadedMedia.length) {
         setNotice(`${result.message} Las fotos y el video quedaron pendientes de aprobación.`)
       } else {
@@ -760,7 +762,7 @@ function ProductDetailPage({
                     type="file"
                     accept="image/jpeg,image/png,image/webp,video/mp4"
                     multiple
-                    disabled={saving || isLoading}
+                    disabled={saving || isLoading || Boolean(reviewData?.mediaError)}
                     onChange={(event) => {
                       handleReviewMediaSelection(event.currentTarget.files)
                       event.currentTarget.value = ''
@@ -3289,7 +3291,7 @@ function Storefront() {
             ) : adminTab === 'reviews' ? (
               <section className="admin-review-media">
                 <div className="admin-section-heading">
-                  <div><h3>Archivos pendientes de revisión</h3><p>Solo se publican después de aprobarlos. Revisá que el contenido sea pertinente y no exponga datos personales. Las previsualizaciones vencen a los 5 minutos.</p></div>
+                  <div><h3>Archivos pendientes de revisión</h3><p>Solo se publican después de aprobarlos. Revisá que el contenido sea pertinente y no exponga datos personales. Las previsualizaciones usan enlaces protegidos de Cloudinary.</p></div>
                   {adminReviewMediaLoading && <span className="sync-indicator" aria-label="Cargando archivos pendientes" />}
                   <button type="button" className="auth-switch admin-review-media-refresh" onClick={() => { setAdminReviewMediaLoading(true); setAdminReviewMediaCursor(''); setAdminReviewMediaRefresh((current) => current + 1) }} disabled={adminReviewMediaLoading}>Actualizar</button>
                 </div>

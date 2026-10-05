@@ -8,8 +8,7 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app'
 import { getAuth, type DecodedIdToken, type UserRecord } from 'firebase-admin/auth'
-import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore'
-import { getStorage } from 'firebase-admin/storage'
+import { FieldValue, Timestamp, getFirestore, type DocumentReference } from 'firebase-admin/firestore'
 import { products as demoProducts } from '../src/data/products.js'
 import {
   EmailDeliveryError,
@@ -284,77 +283,188 @@ const reviewMediaLimits = {
   totalCount: 5,
   uploadLifetimeMs: 24 * 60 * 60 * 1000,
 }
-const adminMediaPreviewLifetimeMs = 5 * 60 * 1000
+const cloudinaryNotConfiguredMessage =
+  'Las fotos y videos de opiniones no están configurados. La opinión de texto sigue disponible.'
+let activeReviewUploads = 0
 
-function getReviewMediaBucket() {
-  const bucketName = process.env.FIREBASE_STORAGE_BUCKET?.trim()
-  if (!bucketName) {
-    throw new ApiError('Configurá FIREBASE_STORAGE_BUCKET para habilitar fotos y videos en las opiniones.', 503)
-  }
-  return getStorage(firebaseApp).bucket(bucketName)
+type CloudinaryConfig = {
+  cloudName: string
+  apiKey: string
+  apiSecret: string
 }
 
-async function createAdminMediaPreviewUrl(storagePath: string): Promise<string> {
-  const file = getReviewMediaBucket().file(storagePath)
-  const [exists] = await file.exists()
-  if (!exists) throw new ApiError('Un archivo pendiente ya no existe en Firebase Storage.', 409)
-  const [url] = await file.getSignedUrl({
-    action: 'read',
-    expires: Date.now() + adminMediaPreviewLifetimeMs,
-  })
-  return url
+function getCloudinaryConfig(): CloudinaryConfig | null {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME?.trim() ?? ''
+  const apiKey = process.env.CLOUDINARY_API_KEY?.trim() ?? ''
+  const apiSecret = process.env.CLOUDINARY_API_SECRET?.trim() ?? ''
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(cloudName) || !apiKey || !apiSecret) return null
+  return { cloudName, apiKey, apiSecret }
+}
+
+function requireCloudinaryConfig(): CloudinaryConfig {
+  const config = getCloudinaryConfig()
+  if (!config) throw new ApiError(cloudinaryNotConfiguredMessage, 503)
+  return config
+}
+
+function cloudinaryApiSignature(
+  params: Record<string, string | number | boolean>,
+  apiSecret: string,
+): string {
+  const canonical = Object.entries(params)
+    .filter(([, value]) => value !== '' && value !== undefined && value !== null)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${value}`)
+    .join('&')
+  return createHash('sha1').update(`${canonical}${apiSecret}`).digest('hex')
+}
+
+function cloudinaryDeliveryUrl(
+  type: 'image' | 'video',
+  publicId: string,
+  format: string,
+): string {
+  const { cloudName, apiSecret } = requireCloudinaryConfig()
+  const deliveryPath = `${publicId}.${format}`
+  const signature = createHash('sha1')
+    .update(`${deliveryPath}${apiSecret}`)
+    .digest('base64url')
+    .slice(0, 8)
+  return `https://res.cloudinary.com/${encodeURIComponent(cloudName)}/${type}/authenticated/s--${signature}--/${deliveryPath
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/')}`
+}
+
+function getStoredMediaDeliveryUrl(data: Record<string, unknown>): string {
+  if (
+    data.provider !== 'cloudinary' ||
+    (data.type !== 'image' && data.type !== 'video') ||
+    typeof data.publicId !== 'string' ||
+    typeof data.format !== 'string' ||
+    !/^reviews\/[a-z0-9-]{1,80}\/[a-f0-9]{64}\/[A-Za-z0-9_-]{1,150}$/.test(data.publicId) ||
+    !(data.type === 'video'
+      ? data.format === 'mp4'
+      : ['jpg', 'jpeg', 'png', 'webp'].includes(data.format))
+  ) {
+    throw new ApiError('Los metadatos de un archivo de opinión no son válidos.', 409)
+  }
+  return cloudinaryDeliveryUrl(data.type, data.publicId, data.format)
+}
+
+function requireReviewUploadCapacity(_request: Request, response: Response, next: NextFunction) {
+  if (activeReviewUploads >= 2) {
+    next(new ApiError('Hay varias cargas de archivos en curso. Esperá un momento y volvé a intentar.', 429))
+    return
+  }
+  activeReviewUploads += 1
+  let released = false
+  const release = () => {
+    if (released) return
+    released = true
+    activeReviewUploads = Math.max(0, activeReviewUploads - 1)
+  }
+  response.once('finish', release)
+  response.once('close', release)
+  next()
+}
+
+function requireCloudinary(_request: Request, _response: Response, next: NextFunction) {
+  try {
+    requireCloudinaryConfig()
+    next()
+  } catch (error) {
+    next(error)
+  }
+}
+
+async function destroyCloudinaryAsset(
+  type: 'image' | 'video',
+  publicId: string,
+): Promise<void> {
+  const { cloudName, apiKey, apiSecret } = requireCloudinaryConfig()
+  const timestamp = Math.floor(Date.now() / 1000)
+  const params = { invalidate: true, public_id: publicId, timestamp, type: 'authenticated' }
+  const form = new FormData()
+  for (const [key, value] of Object.entries(params)) form.append(key, String(value))
+  form.append('api_key', apiKey)
+  form.append('signature', cloudinaryApiSignature(params, apiSecret))
+  const response = await fetch(
+    `https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/${type}/destroy`,
+    { method: 'POST', body: form, signal: AbortSignal.timeout(20_000) },
+  )
+  const result = await response.json().catch(() => null) as
+    | { result?: unknown; error?: { message?: unknown } }
+    | null
+  if (!response.ok && result?.result !== 'not found') {
+    throw new ApiError('Cloudinary no pudo eliminar el archivo rechazado. Volvé a intentar.', 502)
+  }
+  if (response.ok && result?.result !== 'ok' && result?.result !== 'not found') {
+    throw new ApiError('Cloudinary no confirmó la eliminación del archivo.', 502)
+  }
 }
 
 async function cleanupAbandonedReviewUploads() {
   const cutoff = Timestamp.fromMillis(Date.now() - reviewMediaLimits.uploadLifetimeMs)
-  const bucket = getReviewMediaBucket()
-  let hasMore = true
-  while (hasMore) {
-    const snapshot = await firestore.collection('productReviewMedia')
-      .where('status', '==', 'uploading')
-      .where('createdAt', '<', cutoff)
-      .limit(100)
-      .get()
-    await Promise.all(snapshot.docs.map(async (document) => {
-      const storagePath = document.get('storagePath')
-      if (typeof storagePath !== 'string') {
-        throw new ApiError('Una carga abandonada tiene una referencia de archivo no válida.', 409)
-      }
-      await bucket.file(storagePath).delete({ ignoreNotFound: true })
-      await document.ref.delete()
-    }))
-    hasMore = snapshot.size === 100
-  }
+  const collection = firestore.collection('productReviewMedia')
+  const snapshot = await collection
+    .where('status', '==', 'uploading')
+    .where('createdAt', '<', cutoff)
+    .limit(100)
+    .get()
+  await Promise.all(snapshot.docs.map(async (document) => {
+    const publicId = document.get('publicId')
+    const type = document.get('type')
+    if (typeof publicId === 'string' && (type === 'image' || type === 'video')) {
+      await destroyCloudinaryAsset(type, publicId)
+    }
+    await document.ref.delete()
+  }))
+  const rejecting = await collection.where('status', '==', 'rejecting').limit(100).get()
+  await Promise.all(rejecting.docs.map(async (document) => {
+    const type = document.get('type')
+    const publicId = document.get('publicId')
+    if ((type !== 'image' && type !== 'video') || typeof publicId !== 'string') {
+      throw new ApiError('Un archivo rechazado tiene una referencia no válida.', 409)
+    }
+    await destroyCloudinaryAsset(type, publicId)
+    await document.ref.update({
+      status: 'rejected',
+      moderatedAt: FieldValue.serverTimestamp(),
+    })
+  }))
 }
 
-function parseReviewMediaRequest(body: unknown): {
+function parseReviewMediaRequest(
+  contentTypeHeader: string,
+  file: Buffer,
+): {
   type: 'image' | 'video'
   contentType: string
   fileSize: number
 } {
-  if (typeof body !== 'object' || body === null) {
-    throw new ApiError('Los datos del archivo no son válidos.', 400)
-  }
-  const { type, contentType, fileSize } = body as Record<string, unknown>
-  if (
-    (type !== 'image' && type !== 'video') ||
-    typeof contentType !== 'string'
-  ) {
-    throw new ApiError('El tipo de archivo no está permitido.', 400)
-  }
+  const contentType = contentTypeHeader.toLowerCase().split(';')[0].trim()
+  const type = contentType === 'video/mp4' ? 'video' : 'image'
   const isImage = type === 'image' && ['image/jpeg', 'image/png', 'image/webp'].includes(contentType)
   const isVideo = type === 'video' && contentType === 'video/mp4'
   const maxSize = isImage ? reviewMediaLimits.imageBytes : isVideo ? reviewMediaLimits.videoBytes : 0
   if (
     (!isImage && !isVideo) ||
-    typeof fileSize !== 'number' ||
-    !Number.isSafeInteger(fileSize) ||
-    fileSize < 1 ||
-    fileSize > maxSize
+    file.length < 1 ||
+    file.length > maxSize
   ) {
     throw new ApiError('Usá imágenes JPEG, PNG o WebP de hasta 8 MB, o un video MP4 de hasta 25 MB.', 400)
   }
-  return { type, contentType, fileSize }
+  const validSignature =
+    contentType === 'image/jpeg'
+      ? file.length >= 3 && file[0] === 0xff && file[1] === 0xd8 && file[2] === 0xff
+      : contentType === 'image/png'
+        ? file.length >= 8 && file.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+        : contentType === 'image/webp'
+          ? file.length >= 12 && file.toString('ascii', 0, 4) === 'RIFF' && file.toString('ascii', 8, 12) === 'WEBP'
+          : file.length >= 12 && file.toString('ascii', 4, 8) === 'ftyp'
+  if (!validSignature) throw new ApiError('El contenido real del archivo no coincide con el formato declarado.', 400)
+  return { type, contentType, fileSize: file.length }
 }
 
 function getProductSnapshot(data: Record<string, unknown>, productId: string) {
@@ -1054,9 +1164,11 @@ function handleError(error: unknown, _request: Request, response: Response, _nex
 }
 
 app.get('/api/health', (_request, response) => {
+  response.set('Cache-Control', 'private, no-store')
   response.json({
     status: 'ok',
     firebaseAdminConfigured: firebaseConfigured,
+    reviewMediaConfigured: Boolean(getCloudinaryConfig()),
     smtpConfigured: isEmailConfigured(),
     emailTransport: getEmailTransport(),
     mercadoPagoMode,
@@ -1847,21 +1959,40 @@ app.post(
   reviewMediaLimiter,
   requireFirebaseServices,
   requireUser,
+  requireCloudinary,
+  requireReviewUploadCapacity,
+  express.raw({
+    type: ['image/jpeg', 'image/png', 'image/webp', 'video/mp4'],
+    limit: '26mb',
+  }),
   async (request, response, next) => {
+    let mediaRef: DocumentReference | null = null
+    let reservedPublicId = ''
+    let uploadCompleted = false
+    let providerResponseReceived = false
+    let reservationCreated = false
+    let mediaType: 'image' | 'video' | null = null
     try {
       const productId = typeof request.params.productId === 'string' ? request.params.productId : ''
       const uid = request.authenticatedUser?.uid
-      const { type, contentType, fileSize } = parseReviewMediaRequest(request.body)
+      const fileBytes = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0)
+      const { type, contentType, fileSize } = parseReviewMediaRequest(
+        request.get('content-type') ?? '',
+        fileBytes,
+      )
+      mediaType = type
       if (!uid) throw new ApiError('Iniciá sesión para adjuntar archivos a tu opinión.', 401)
       if (request.authenticatedUser?.email_verified !== true) {
         throw new ApiError('Verificá tu email antes de adjuntar archivos.', 403)
       }
       if (!/^[a-z0-9-]{1,80}$/.test(productId)) throw new ApiError('El producto no es válido.', 400)
+      const { cloudName, apiKey, apiSecret } = requireCloudinaryConfig()
 
       const reviewId = getProductReviewDocumentId(productId, uid)
       const reviewRef = firestore.doc(`productReviews/${reviewId}`)
       const purchaseRef = firestore.doc(`verifiedPurchases/${uid}_${productId}`)
-      const mediaRef = firestore.collection('productReviewMedia').doc()
+      const mediaDocumentRef = firestore.collection('productReviewMedia').doc()
+      mediaRef = mediaDocumentRef
       const mediaQuery = firestore.collection('productReviewMedia').where('reviewId', '==', reviewId)
       const productRef = firestore.doc(`products/${productId}`)
       const [productSnapshot, purchaseSnapshot] = await Promise.all([
@@ -1878,7 +2009,7 @@ app.post(
       }
 
       await cleanupAbandonedReviewUploads()
-      const storagePath = `product-review-media/${productId}/${reviewId}/${mediaRef.id}`
+      reservedPublicId = `reviews/${productId}/${reviewId}/${mediaDocumentRef.id}`
       await firestore.runTransaction(async (transaction) => {
         const [reviewSnapshot, mediaSnapshot] = await Promise.all([
           transaction.get(reviewRef),
@@ -1899,11 +2030,12 @@ app.post(
         ) {
           throw new ApiError('Cada opinión admite hasta 4 imágenes y 1 video.', 409)
         }
-        transaction.create(mediaRef, {
+        transaction.create(mediaDocumentRef, {
           reviewId,
           productId,
           userId: uid,
-          storagePath,
+          provider: 'cloudinary',
+          publicId: reservedPublicId,
           type,
           contentType,
           fileSize,
@@ -1911,85 +2043,85 @@ app.post(
           createdAt: FieldValue.serverTimestamp(),
         })
       })
-      response.status(201).json({ id: mediaRef.id, path: storagePath })
-    } catch (error) {
-      next(error)
-    }
-  },
-)
+      reservationCreated = true
 
-app.post(
-  '/api/products/:productId/reviews/media/:mediaId/complete',
-  reviewMediaLimiter,
-  requireFirebaseServices,
-  requireUser,
-  async (request, response, next) => {
-    try {
-      const productId = typeof request.params.productId === 'string' ? request.params.productId : ''
-      const mediaId = typeof request.params.mediaId === 'string' ? request.params.mediaId : ''
-      const uid = request.authenticatedUser?.uid
-      if (!uid) throw new ApiError('Iniciá sesión para finalizar la carga.', 401)
-      if (!/^[a-z0-9-]{1,80}$/.test(productId) || !/^[A-Za-z0-9_-]{1,150}$/.test(mediaId)) {
-        throw new ApiError('El archivo no es válido.', 400)
+      const timestamp = Math.floor(Date.now() / 1000)
+      const params = { public_id: reservedPublicId, timestamp, type: 'authenticated' }
+      const form = new FormData()
+      form.append('file', new Blob([new Uint8Array(fileBytes)], { type: contentType }), `${mediaDocumentRef.id}`)
+      for (const [key, value] of Object.entries(params)) form.append(key, String(value))
+      form.append('api_key', apiKey)
+      form.append('signature', cloudinaryApiSignature(params, apiSecret))
+      const cloudinaryResponse = await fetch(
+        `https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/${type}/upload`,
+        { method: 'POST', body: form, signal: AbortSignal.timeout(60_000) },
+      )
+      providerResponseReceived = true
+      uploadCompleted = cloudinaryResponse.ok
+      const cloudinaryResult = await cloudinaryResponse.json().catch(() => null) as
+        | {
+            public_id?: unknown
+            resource_type?: unknown
+            type?: unknown
+            bytes?: unknown
+            format?: unknown
+            error?: { message?: unknown }
+          }
+        | null
+      const providerError = typeof cloudinaryResult?.error?.message === 'string'
+        ? cloudinaryResult.error.message
+        : ''
+      if (!cloudinaryResponse.ok) {
+        if (
+          cloudinaryResponse.status === 402 ||
+          cloudinaryResponse.status === 420 ||
+          /credit|quota|monthly|free plan/i.test(providerError)
+        ) {
+          throw new ApiError(
+            'Cloudinary alcanzó el límite mensual del plan gratuito. La carga de este archivo no se completó; el texto de la opinión no se modifica por este error. Intentá adjuntarlo nuevamente cuando se renueve la cuota.',
+            503,
+          )
+        }
+        throw new ApiError('Cloudinary no pudo recibir el archivo. La carga falló sin modificar el texto de la opinión; podés reintentar el adjunto.', 502)
       }
-      const mediaRef = firestore.doc(`productReviewMedia/${mediaId}`)
-      const mediaSnapshot = await mediaRef.get()
-      if (!mediaSnapshot.exists || mediaSnapshot.get('userId') !== uid ||
-        mediaSnapshot.get('productId') !== productId || mediaSnapshot.get('status') !== 'uploading') {
-        throw new ApiError('No encontramos una carga pendiente para esta cuenta.', 404)
-      }
-      const storagePath = mediaSnapshot.get('storagePath')
-      if (typeof storagePath !== 'string') throw new ApiError('La referencia del archivo no es válida.', 409)
-      const file = getReviewMediaBucket().file(storagePath)
-      const [exists] = await file.exists()
-      if (!exists) throw new ApiError('No encontramos el archivo cargado. Volvé a intentarlo.', 400)
-      const [metadata] = await file.getMetadata()
-      const actualSize = Number(metadata.size)
+      const expectedFormats = type === 'video' ? ['mp4'] : ['jpg', 'jpeg', 'png', 'webp']
       if (
-        actualSize !== mediaSnapshot.get('fileSize') ||
-        metadata.contentType !== mediaSnapshot.get('contentType')
+        cloudinaryResult?.public_id !== reservedPublicId ||
+        cloudinaryResult.resource_type !== type ||
+        cloudinaryResult.type !== 'authenticated' ||
+        cloudinaryResult.bytes !== fileSize ||
+        typeof cloudinaryResult.format !== 'string' ||
+        !expectedFormats.includes(cloudinaryResult.format)
       ) {
-        await file.delete({ ignoreNotFound: true })
-        await mediaRef.delete()
-        throw new ApiError('El archivo no coincide con el tipo o tamaño declarado.', 400)
+        throw new ApiError('Cloudinary devolvió metadatos que no coinciden con el archivo.', 502)
       }
       await mediaRef.update({
         status: 'pending',
         uploadedAt: FieldValue.serverTimestamp(),
+        format: cloudinaryResult.format,
       })
-      response.status(200).json({ message: 'El archivo quedó enviado para revisión.' })
+      response.set('Cache-Control', 'private, no-store')
+      response.status(201).json({
+        media: {
+          id: mediaDocumentRef.id,
+          type,
+          status: 'pending',
+          url: '',
+          contentType,
+          fileSize,
+        },
+      })
     } catch (error) {
-      next(error)
-    }
-  },
-)
-
-app.delete(
-  '/api/products/:productId/reviews/media/:mediaId',
-  reviewMediaLimiter,
-  requireFirebaseServices,
-  requireUser,
-  async (request, response, next) => {
-    try {
-      const productId = typeof request.params.productId === 'string' ? request.params.productId : ''
-      const mediaId = typeof request.params.mediaId === 'string' ? request.params.mediaId : ''
-      const uid = request.authenticatedUser?.uid
-      if (!uid) throw new ApiError('Iniciá sesión para cancelar la carga.', 401)
-      if (!/^[a-z0-9-]{1,80}$/.test(productId) || !/^[A-Za-z0-9_-]{1,150}$/.test(mediaId)) {
-        throw new ApiError('El archivo no es válido.', 400)
+      if (mediaRef && reservationCreated) {
+        try {
+          if (uploadCompleted && reservedPublicId && mediaType) {
+            await destroyCloudinaryAsset(mediaType, reservedPublicId)
+          }
+          if (providerResponseReceived) await mediaRef.delete()
+        } catch {
+          // The stale reservation is removed by the bounded cleanup job.
+        }
       }
-      const mediaRef = firestore.doc(`productReviewMedia/${mediaId}`)
-      const mediaSnapshot = await mediaRef.get()
-      if (!mediaSnapshot.exists || mediaSnapshot.get('userId') !== uid ||
-        mediaSnapshot.get('productId') !== productId || mediaSnapshot.get('status') !== 'uploading') {
-        throw new ApiError('No encontramos una carga incompleta para cancelar.', 404)
-      }
-      const storagePath = mediaSnapshot.get('storagePath')
-      if (typeof storagePath !== 'string') throw new ApiError('La referencia del archivo no es válida.', 409)
-      await getReviewMediaBucket().file(storagePath).delete({ ignoreNotFound: true })
-      await mediaRef.delete()
-      response.status(200).json({ message: 'Se canceló la carga incompleta.' })
-    } catch (error) {
       next(error)
     }
   },
@@ -2037,19 +2169,27 @@ app.get('/api/products/:productId/reviews', async (request, response, next) => {
         : Promise.resolve(null),
     ])
     const publicMediaByReview = new Map<string, Record<string, unknown>[]>()
+    let mediaError = getCloudinaryConfig() ? '' : cloudinaryNotConfiguredMessage
     approvedMediaSnapshot.docs.forEach((document) => {
       const data = document.data()
       if (
         typeof data.reviewId !== 'string' ||
-        typeof data.storagePath !== 'string' ||
         (data.type !== 'image' && data.type !== 'video')
       ) return
+      let url = ''
+      if (getCloudinaryConfig()) {
+        try {
+          url = getStoredMediaDeliveryUrl(data)
+        } catch {
+          mediaError = 'No pudimos preparar la vista protegida de algunos archivos adjuntos.'
+        }
+      }
       const attachments = publicMediaByReview.get(data.reviewId) ?? []
       attachments.push({
         id: document.id,
-        path: data.storagePath,
         type: data.type,
         status: 'approved',
+        url,
         contentType: data.contentType,
         fileSize: data.fileSize,
       })
@@ -2091,15 +2231,22 @@ app.get('/api/products/:productId/reviews', async (request, response, next) => {
             media: ownMediaSnapshot?.docs.flatMap((mediaDocument) => {
               const mediaData = mediaDocument.data()
               if (
-                typeof mediaData.storagePath !== 'string' ||
                 (mediaData.type !== 'image' && mediaData.type !== 'video') ||
                 !['pending', 'approved'].includes(String(mediaData.status))
               ) return []
+              let url = ''
+              if (mediaData.status === 'approved' && getCloudinaryConfig()) {
+                try {
+                  url = getStoredMediaDeliveryUrl(mediaData)
+                } catch {
+                  mediaError = 'No pudimos preparar la vista protegida de algunos archivos adjuntos.'
+                }
+              }
               return [{
                 id: mediaDocument.id,
-                path: mediaData.storagePath,
                 type: mediaData.type,
                 status: mediaData.status,
+                url,
                 contentType: mediaData.contentType,
                 fileSize: mediaData.fileSize,
               }]
@@ -2108,7 +2255,8 @@ app.get('/api/products/:productId/reviews', async (request, response, next) => {
         })()
       : null
     if (ownReview && !reviews.some((review) => review.mine)) reviews.unshift(ownReview)
-    response.json({
+      response.set('Cache-Control', 'private, no-store')
+      response.json({
       reviews,
       canReview: Boolean(purchaseSnapshot?.exists),
       ownReview,
@@ -2120,6 +2268,7 @@ app.get('/api/products/:productId/reviews', async (request, response, next) => {
           ? summarySnapshot.get('reviewCount')
           : 0,
       },
+      ...(mediaError ? { mediaError } : {}),
     })
   } catch (error) {
     next(error)
@@ -2233,6 +2382,7 @@ app.get(
   requireFirebaseServices,
   requireUser,
   requireAdmin,
+  requireCloudinary,
   async (request, response, next) => {
     try {
       await cleanupAbandonedReviewUploads()
@@ -2264,12 +2414,14 @@ app.get(
           !/^[a-f0-9]{64}$/.test(data.reviewId) ||
           typeof data.productId !== 'string' ||
           !/^[a-z0-9-]{1,80}$/.test(data.productId) ||
-          typeof data.storagePath !== 'string' ||
-          data.storagePath !== `product-review-media/${data.productId}/${data.reviewId}/${document.id}` ||
+          data.provider !== 'cloudinary' ||
+          typeof data.publicId !== 'string' ||
+          data.publicId !== `reviews/${data.productId}/${data.reviewId}/${document.id}` ||
           (data.type !== 'image' && data.type !== 'video') ||
           typeof data.contentType !== 'string' ||
           typeof data.fileSize !== 'number' ||
-          !Number.isSafeInteger(data.fileSize)
+          !Number.isSafeInteger(data.fileSize) ||
+          typeof data.format !== 'string'
         ) {
           throw new ApiError('Un archivo pendiente tiene metadatos no válidos.', 409)
         }
@@ -2282,7 +2434,7 @@ app.get(
         const createdAt = data.createdAt instanceof Timestamp
           ? data.createdAt.toDate().toISOString()
           : null
-        const url = await createAdminMediaPreviewUrl(data.storagePath)
+        const url = getStoredMediaDeliveryUrl(data)
         return {
           id: document.id,
           reviewId: data.reviewId,
@@ -2290,7 +2442,6 @@ app.get(
           productName: typeof product.name === 'string' ? product.name : 'Producto no disponible',
           comment: typeof review.comment === 'string' ? review.comment : '',
           rating: typeof review.rating === 'number' ? review.rating : 0,
-          path: data.storagePath,
           type: data.type,
           contentType: data.contentType,
           fileSize: data.fileSize,
@@ -2316,6 +2467,7 @@ app.patch(
   requireFirebaseServices,
   requireUser,
   requireAdmin,
+  requireCloudinary,
   async (request, response, next) => {
     try {
       const mediaId = typeof request.params.mediaId === 'string' ? request.params.mediaId : ''
@@ -2328,24 +2480,45 @@ app.patch(
       if (!mediaSnapshot.exists || mediaSnapshot.get('status') !== 'pending') {
         throw new ApiError('Este archivo ya fue moderado o no está disponible.', 409)
       }
-      const storagePath = mediaSnapshot.get('storagePath')
-      if (typeof storagePath !== 'string') throw new ApiError('La referencia del archivo no es válida.', 409)
+      const mediaData = mediaSnapshot.data() ?? {}
+      if (
+        mediaData.provider !== 'cloudinary' ||
+        typeof mediaData.publicId !== 'string' ||
+        (mediaData.type !== 'image' && mediaData.type !== 'video')
+      ) throw new ApiError('La referencia del archivo no es válida.', 409)
       if (action === 'reject') {
-        await getReviewMediaBucket().file(storagePath).delete({ ignoreNotFound: true })
+        const moderatorUid = request.authenticatedUser?.uid ?? ''
+        await firestore.runTransaction(async (transaction) => {
+          const current = await transaction.get(mediaRef)
+          if (!current.exists || current.get('status') !== 'pending') {
+            throw new ApiError('Este archivo ya fue moderado o no está disponible.', 409)
+          }
+          transaction.update(mediaRef, {
+            status: 'rejecting',
+            moderatedBy: moderatorUid,
+            moderationStartedAt: FieldValue.serverTimestamp(),
+          })
+        })
+        await destroyCloudinaryAsset(mediaData.type, mediaData.publicId)
         await mediaRef.update({
           status: 'rejected',
-          moderatedBy: request.authenticatedUser?.uid ?? '',
           moderatedAt: FieldValue.serverTimestamp(),
         })
         response.json({ message: 'Se rechazó y eliminó el archivo.' })
         return
       }
-      const [exists] = await getReviewMediaBucket().file(storagePath).exists()
-      if (!exists) throw new ApiError('El archivo ya no existe en Firebase Storage.', 409)
-      await mediaRef.update({
-        status: 'approved',
-        moderatedBy: request.authenticatedUser?.uid ?? '',
-        moderatedAt: FieldValue.serverTimestamp(),
+      const moderatorUid = request.authenticatedUser?.uid ?? ''
+      await firestore.runTransaction(async (transaction) => {
+        const current = await transaction.get(mediaRef)
+        if (!current.exists || current.get('status') !== 'pending') {
+          throw new ApiError('Este archivo ya fue moderado o no está disponible.', 409)
+        }
+        getStoredMediaDeliveryUrl(current.data() ?? {})
+        transaction.update(mediaRef, {
+          status: 'approved',
+          moderatedBy: moderatorUid,
+          moderatedAt: FieldValue.serverTimestamp(),
+        })
       })
       response.json({ message: 'Se aprobó y publicó el archivo en su opinión.' })
     } catch (error) {

@@ -11,24 +11,31 @@ Primera base de una tienda de accesorios, bijouterie y complementos. El proyecto
 
 ```powershell
 npm install
-Copy-Item .env.example .env.local
-Copy-Item .env.server.example .env.server
 npm run dev:full
 ```
 
-Completá `.env.local` con los valores de configuración de una aplicación web de Firebase. No subas ese archivo al repositorio.
+Antes de iniciar la aplicación, creá `.env.local` y `.env.server` en la raíz del proyecto. Completá `.env.local` con los valores de configuración de una aplicación web de Firebase y `.env.server` con las variables backend indicadas más abajo. No subas esos archivos al repositorio.
 
-Para cargar fotos y videos en opiniones, habilitá Firebase Storage en el mismo proyecto y agregá `VITE_FIREBASE_STORAGE_BUCKET` a `.env.local`. Copiá exactamente el nombre del bucket que muestra Firebase Storage (sin `gs://`); los buckets nuevos suelen terminar en `.firebasestorage.app` y los anteriores pueden terminar en `.appspot.com`. Configurá el mismo nombre en el servidor como `FIREBASE_STORAGE_BUCKET`. Firebase exige el plan Blaze con facturación vinculada para crear y usar buckets de Storage; puede haber uso sin cargo dentro de las cuotas vigentes, pero revisá precios y configurá alertas de presupuesto antes de habilitar cargas. La cuenta de servicio del servidor necesita acceso de lectura, creación y eliminación de objetos (por ejemplo, el rol **Storage Object Admin** limitado al bucket) para validar cargas, generar vistas previas y limpiar archivos rechazados o abandonados.
+Las reseñas verificadas admiten puntuación, comentario y fotos/videos moderados. Los adjuntos usan Cloudinary Free; no se usa Firebase Storage ni Dropbox. La aplicación admite hasta 4 imágenes JPEG/PNG/WebP (8 MiB cada una) y un video MP4 (25 MiB) por opinión. La opinión de texto se guarda independientemente: si Cloudinary no está configurado o agotó la cuota, se informa el error específico de los archivos sin ocultar que el texto sí se guardó.
 
-Pasos concretos para habilitarlo:
+### Fotos y videos de opiniones con Cloudinary Free
 
-1. En Firebase Console, seleccioná el mismo proyecto cuyo ID figura en `VITE_FIREBASE_PROJECT_ID` y `FIREBASE_PROJECT_ID`. Abrí **Databases & Storage → Storage → Get started**, vinculá el proyecto al plan Blaze si Firebase lo solicita, elegí cuidadosamente la ubicación del bucket y crealo. La ubicación no se puede cambiar después.
-2. En **Storage → Files**, copiá el nombre exacto del bucket. En local, asignalo tanto a `VITE_FIREBASE_STORAGE_BUCKET` en `.env.local` como a `FIREBASE_STORAGE_BUCKET` en `.env.server`. En Render, cargá el mismo nombre en las dos variables de **Environment** del servicio. La primera se incorpora al bundle cuando se construye el frontend; la segunda la usa la API en ejecución, así que guardá ambas y volvé a desplegar/reconstruir el servicio.
-3. En Google Cloud Console, dentro del mismo proyecto, comprobá que la cuenta asociada al archivo de servicio `lumina-service-account.json` tenga **Storage Object Admin** sobre el bucket (o permisos equivalentes limitados a ese bucket). No subas ni pegues el JSON en el repositorio, en variables `VITE_*` ni en el chat.
-4. Desde la raíz del proyecto, autenticá Firebase CLI, seleccioná el proyecto correcto y publicá las reglas e índices: `firebase login`, `firebase use --add` y `firebase deploy --only firestore,storage`. Confirmá que el despliegue termine para Firestore y Storage antes de probar cargas.
-5. Hacé una compra de prueba aprobada con una cuenta de cliente verificada. En la opinión de ese producto, probá una imagen permitida (JPEG/PNG/WebP hasta 8 MB) y un MP4 (hasta 25 MB); revisá en **Admin → Reseñas** que permanezcan privados, aprobá uno y rechazá el otro. Comprobá que el aprobado se muestre públicamente y que el rechazado ya no exista en el bucket. No uses archivos de clientes reales como prueba.
+Cloudinary Free ofrece **25 créditos mensuales compartidos** entre almacenamiento, entrega y transformaciones. El almacenamiento consume 1 crédito por cada GB y la entrega consume 1 crédito por cada GB; las transformaciones también consumen créditos según su uso. No requiere tarjeta de crédito. Por ser una cuota mensual compartida, el espacio y el tráfico disponibles dependen del consumo combinado y no constituyen una capacidad de producción garantizada; consultá las condiciones vigentes en Cloudinary.
 
-Las reglas de Storage se guardan en `storage.rules`. No se probaron con Firebase Emulator ni se desplegaron desde este entorno; antes de habilitar el flujo productivo, validalas en un proyecto de pruebas/emulador y verificá la autorización de escritura/lectura con cuentas de cliente y Admin.
+1. Creá una cuenta Cloudinary en el plan gratuito y copiá el **Cloud name**, **API Key** y **API Secret** de la consola.
+2. Para desarrollo local, agregá estas variables a `.env.server`:
+
+   ```dotenv
+   CLOUDINARY_CLOUD_NAME=tu_cloud_name
+   CLOUDINARY_API_KEY=tu_api_key
+   CLOUDINARY_API_SECRET=tu_api_secret
+   ```
+
+3. En Render, cargá esas mismas tres variables en **Dashboard → Environment**. `render.yaml` las declara sin valores; Render permite configurarlas como secretos al crear o actualizar el servicio.
+4. Reiniciá el servidor local (`npm run dev:full`) o desplegá el servicio. Si las variables faltan, pedidos, opiniones de texto y el resto de la tienda siguen funcionando, pero la carga y moderación de adjuntos se deshabilitan con un aviso específico.
+5. Controlá **Usage** en la consola de Cloudinary regularmente para revisar créditos, almacenamiento y entrega. Al agotar los créditos, la API mantiene disponible el texto de la opinión, rechaza la carga de archivos con un mensaje explícito y permite volver a intentar cuando se renueve la cuota.
+
+Las credenciales Cloudinary se usan únicamente en el servidor para las fotos y videos de reseñas. **No las pongas en variables `VITE_*`, el navegador ni el repositorio.** Las cargas quedan como assets autenticados y privados; el equipo las previsualiza mediante URLs firmadas y solo las aprobadas se incluyen en las opiniones públicas. Rechazar una carga elimina el asset de Cloudinary. Cloudinary no participa en Firebase Authentication/Firestore, checkout ni Mercado Pago. No se requiere Firebase Storage, vincular Firebase Blaze ni usar Dropbox.
 
 La API de correo necesita además:
 
@@ -42,7 +49,7 @@ La API de correo necesita además:
 
 Para habilitar el checkout sandbox en local, agregá en `.env.server` `MERCADO_PAGO_MODE=sandbox`, el Access Token que figura en **Pruebas → Credenciales de prueba** como `MERCADO_PAGO_ACCESS_TOKEN` y `MERCADO_PAGO_WEBHOOK_SECRET=...`. No uses el usuario ni la contraseña de prueba como Access Token. El secreto debe ser el de la notificación configurada para el evento `payment`. No configures estas variables como `VITE_*`; no habilites `MERCADO_PAGO_ALLOW_PRODUCTION` en esta etapa.
 
-`npm run dev:full` inicia Vite y la API Express local; Vite reenvía `/api` al puerto `3001`. El endpoint `/api/health` permite ver si Firebase Admin y SMTP están configurados, sin exponer sus valores.
+`npm run dev:full` inicia Vite y la API Express local; Vite reenvía `/api` al puerto `3001`. El endpoint `/api/health` informa si Firebase Admin, SMTP, Mercado Pago y Cloudinary están configurados, sin exponer sus valores.
 
 En Firebase Console:
 
@@ -51,8 +58,6 @@ En Firebase Console:
 3. En **Authentication → Settings → Authorized domains**, verificá que `localhost` esté permitido para desarrollo.
 4. Creá una base de **Cloud Firestore**.
 5. Publicá las reglas e índices de Firestore con `firebase deploy --only firestore`; el proyecto usa [`firestore.rules`](./firestore.rules) y [`firestore.indexes.json`](./firestore.indexes.json).
-6. Para adjuntos en opiniones, habilitá **Storage**, creá el bucket y publicá sus reglas con `firebase deploy --only storage`. Configurá el mismo nombre de bucket en la app y el servidor.
-
 La configuración pública de Firebase que usa la aplicación no reemplaza las reglas de seguridad: aplicá siempre reglas en Firebase y restringí las claves desde la consola cuando corresponda. Las reglas incluidas dejan el catálogo legible, bloquean su escritura desde el cliente y limitan los perfiles a su propio usuario.
 
 Desde **Mi cuenta**, cada cliente autenticado puede abrir la sección independiente **Mis compras**, consultar sus últimos 50 pedidos y abrir el detalle con productos, fotos, fecha y hora, medio de pago disponible, rango estimado de entrega y progreso local o internacional. Administración configura por pedido el tipo de envío, las fechas, la etapa, una novedad visible y opcionalmente el transportista/código/enlace de seguimiento; la ubicación en vivo depende de la empresa de correo y no está integrada. Cliente y administración pueden intercambiar mensajes asincrónicos asociados al pedido. El cliente puede cancelar un pedido antes del despacho: si el pago sigue pendiente, se libera la reserva de stock; si Mercado Pago ya lo aprobó, la API solicita el reembolso completo con una clave de idempotencia estable y conserva el pedido bloqueado para despacho hasta confirmar el reembolso. Si Mercado Pago todavía lo procesa o no responde, se puede reintentar desde el detalle sin duplicar el reembolso. El botón no aparece después del despacho y la API valida nuevamente esta condición para evitar carreras con administración. En modo productivo, un reembolso confirmado devuelve dinero real al comprador. Las demás opciones de ayuda abren mensajes para el equipo y no cambian direcciones automáticamente. Esta consulta requiere el índice de Firestore declarado en `firestore.indexes.json`; publicá reglas e índices con `firebase deploy --only firestore`.
@@ -78,8 +83,8 @@ Para revisar el diseño localmente sin enviar correos ni cambiar contraseñas, a
 - Confirmación de pagos por webhook firmado y consultado contra la API de Mercado Pago; la pantalla de retorno nunca da por aprobado un pago por la URL.
 - Páginas de detalle de producto responsive y navegables en `/producto/{id}`, con galería de hasta 8 imágenes, descripción extensa, atributos flexibles, stock, compra con cantidad y opiniones verificadas.
 - Centro de notificaciones accesible en el encabezado, con novedades de compras observadas en **Mis compras** o en su detalle, y mensajes nuevos detectados mientras el chat de una compra está abierto. Se guardan hasta 50 avisos por usuario en el dispositivo; el sonido es opcional y está desactivado por defecto. Estas novedades dependen de las consultas periódicas existentes y no son notificaciones push ni un servicio en tiempo real.
-- Opiniones con fotos JPEG/PNG/WebP (hasta 4, 8 MB cada una) y un video MP4 (hasta 25 MB), sujetos a aprobación manual del equipo antes de hacerse públicos.
-- Panel de administración protegido para publicaciones, disponibilidad, stock, seguimiento de pedidos pagados, moderación de medios de opiniones y asignación de rol Admin por email.
+- Opiniones verificadas con adjuntos en Cloudinary Free: hasta 4 fotos JPEG/PNG/WebP (8 MiB cada una) y un video MP4 (25 MiB), siempre privados hasta su aprobación manual. Los límites de crédito mensual de Cloudinary aplican además de los límites por archivo.
+- Panel de administración protegido para publicaciones, disponibilidad, stock, seguimiento de pedidos pagados y asignación de rol Admin por email.
 - Favoritos y bolso sincronizados en subcolecciones del usuario autenticado:
   - `users/{userId}/favorites/{productId}`
   - `users/{userId}/cart/{productId}`
@@ -88,9 +93,7 @@ Para revisar el diseño localmente sin enviar correos ni cambiar contraseñas, a
 
 El catálogo inicial de demostración está en `src/data/products.ts`; las publicaciones creadas desde Admin se guardan en Firestore y se combinan con ese catálogo. Las imágenes de producto son URLs públicas HTTPS. Los cambios de favoritos, bolso, perfil, pedidos y publicaciones requieren las reglas de Firestore publicadas desde `firestore.rules`.
 
-Las opiniones se guardan en `productReviews` y sus promedios en `productReviewSummaries`. Los clientes solo pueden leerlas; la API valida la sesión, el email verificado y el registro privado `verifiedPurchases` creado al acreditar un pago antes de aceptar o editar una opinión. Los archivos se registran en `productReviewMedia` y se almacenan bajo `product-review-media/{productId}/{reviewId}/{mediaId}`. La API valida la compra, limita el número/tamaño/tipo, crea una autorización de carga por archivo y elimina las cargas incompletas de más de 24 horas. Las reglas de Storage permiten cargas nuevas solo al autor de la opinión, y lecturas públicas únicamente después de la aprobación administrativa; un rechazo elimina el archivo. El equipo recibe enlaces firmados de previsualización que vencen en cinco minutos; no se generan URLs públicas permanentes para archivos pendientes. Publicá las reglas e índices de Firestore y las reglas de Storage con `firebase deploy --only firestore,storage`.
-
-Para habilitar las cargas, creá el bucket desde Firebase Console, configurá `VITE_FIREBASE_STORAGE_BUCKET` local y en Render, y configurá `FIREBASE_STORAGE_BUCKET` en el servidor. Revisá los requisitos de facturación y costos del bucket en Firebase antes de habilitarlo. En **Admin → Reseñas**, el equipo puede previsualizar cada archivo y aprobarlo para publicarlo o rechazarlo para eliminarlo; la cola permite avanzar de a 25 archivos y actualizar las previsualizaciones vencidas. Solo los archivos aprobados se devuelven en las opiniones públicas.
+Las opiniones se guardan en `productReviews` y sus promedios en `productReviewSummaries`. Los clientes solo pueden leerlas; la API valida la sesión, el email verificado y el registro privado `verifiedPurchases` creado al acreditar un pago antes de aceptar o editar una opinión. Las reseñas contienen puntuación y comentario de texto; no dependen de almacenamiento de archivos.
 
 La verificación se envía al registrarse; la app permite explorar y guardar mientras tanto y muestra el estado en **Mi cuenta**. Firebase Admin genera enlaces de acción de un solo uso y el servidor los envía en correos de marca mediante SMTP; las plantillas integradas de Firebase ya no se usan para estos dos flujos.
 
@@ -100,7 +103,7 @@ El centro de notificaciones muestra cambios de pedidos detectados por la consult
 
 Firestore funciona como backend administrado para autenticación y datos privados del usuario. Se agregó una API Express pequeña porque Firebase Admin y el envío SMTP requieren credenciales privadas que no deben incluirse en React. La API valida tokens de Firebase para reenviar verificaciones, limita intentos, y da respuestas genéricas en el restablecimiento para no revelar si un email está registrado.
 
-Los pagos se integran con **Mercado Pago Checkout Pro**, empezando en sandbox: la tienda no recibe ni guarda datos de tarjetas, y los pagos de prueba no mueven dinero real. La API vuelve a calcular los importes desde el catálogo confiable, reserva stock durante 30 minutos y crea el pedido pendiente. El servidor acredita los pagos mediante webhooks firmados y consulta la API de Mercado Pago para verificar cada transacción. Al volver del checkout, el cliente autenticado también puede solicitar una conciliación del pago; el servidor valida que Mercado Pago asocie el pago al pedido, que importe y moneda coincidan y que el modo sea el esperado antes de actualizarlo. Nunca se confía en el estado de pago indicado por la URL del navegador. Las reservas vencidas se liberan periódicamente. Las imágenes de catálogo siguen siendo URLs HTTPS; Firebase Storage se usa exclusivamente para archivos de opinión moderados.
+Los pagos se integran con **Mercado Pago Checkout Pro**, empezando en sandbox: la tienda no recibe ni guarda datos de tarjetas, y los pagos de prueba no mueven dinero real. La API vuelve a calcular los importes desde el catálogo confiable, reserva stock durante 30 minutos y crea el pedido pendiente. El servidor acredita los pagos mediante webhooks firmados y consulta la API de Mercado Pago para verificar cada transacción. Al volver del checkout, el cliente autenticado también puede solicitar una conciliación del pago; el servidor valida que Mercado Pago asocie el pago al pedido, que importe y moneda coincidan y que el modo sea el esperado antes de actualizarlo. Nunca se confía en el estado de pago indicado por la URL del navegador. Las reservas vencidas se liberan periódicamente. Las opiniones son textuales para evitar costos de almacenamiento.
 
 ### Probar pagos sin dinero real
 
@@ -136,7 +139,7 @@ Los productos nuevos se publican desde el panel con nombre, categoría, descripc
 
 La compra desde la ficha agrega la cantidad seleccionada al bolso y respeta el stock que conoce el catálogo. La API de checkout sigue siendo la validación final de precios y disponibilidad. Las opciones de cuotas dependen de la respuesta de Mercado Pago para cada compra y no se prometen antes del checkout. Como la tienda aún maneja un único vendedor, la ficha identifica a Lúmina y no simula ofertas de otros comercios ni un catálogo de minoristas.
 
-Las reseñas de la ficha admiten comentarios de texto y adjuntos de compradores verificados. Los medios se mantienen privados y pendientes hasta que un administrador los aprueba en **Admin → Reseñas**; los rechazados se eliminan. Tampoco se incluyen preguntas públicas/respuestas del vendedor en esta etapa.
+Las reseñas de la ficha admiten puntuación y comentarios de texto de compradores verificados. No se adjuntan fotos ni videos. Tampoco se incluyen preguntas públicas/respuestas del vendedor en esta etapa.
 
 Los productos de ejemplo conservan su catálogo inicial y comienzan con un stock de demostración; al procesar compras, la API lo descuenta de forma atómica. Ocultar un producto lo saca de la tienda sin borrar su historial.
 
@@ -147,9 +150,9 @@ El panel revisa pedidos nuevos mientras está abierto y muestra el cliente, la e
 El archivo [`render.yaml`](./render.yaml) define un único servicio web gratuito para pruebas. Render instala las dependencias, compila React y arranca Express; Express sirve `dist/` y la API `/api` desde el mismo dominio. El checkout permanece deshabilitado hasta configurar las credenciales sandbox de Mercado Pago.
 
 1. Subí este proyecto a un repositorio privado de GitHub y conectalo desde Render con **New → Blueprint**.
-2. Render va a pedir las variables Firebase y de Mercado Pago marcadas como `sync: false`. Obtené las `VITE_FIREBASE_*` de la configuración de tu aplicación web en Firebase; `FIREBASE_PROJECT_ID` debe ser el ID del mismo proyecto. Para habilitar medios, `VITE_FIREBASE_STORAGE_BUCKET` y `FIREBASE_STORAGE_BUCKET` deben coincidir con el bucket creado en Firebase. `ADMIN_EMAILS` es opcional si ya existe un documento Admin en Firestore; si no, completalo con el email verificado del primer administrador (separá varias cuentas con comas). Estos valores `VITE_*` son configuración pública de cliente y quedan incluidos en el frontend; nunca pongas allí credenciales privadas.
+2. Render va a pedir las variables Firebase y de Mercado Pago marcadas como `sync: false`. Obtené las `VITE_FIREBASE_*` de la configuración de tu aplicación web en Firebase; `FIREBASE_PROJECT_ID` debe ser el ID del mismo proyecto. `ADMIN_EMAILS` es opcional si ya existe un documento Admin en Firestore; si no, completalo con el email verificado del primer administrador (separá varias cuentas con comas). Estos valores `VITE_*` son configuración pública de cliente y quedan incluidos en el frontend; nunca pongas allí credenciales privadas.
 3. En **Environment → Secret Files**, agregá `lumina-service-account.json` con la clave de cuenta de servicio del proyecto Firebase. El blueprint ya apunta `GOOGLE_APPLICATION_CREDENTIALS` a `/etc/secrets/lumina-service-account.json`. Protegé ese archivo y no lo agregues al repositorio.
-4. Esperá a que termine el deploy y abrí la URL `onrender.com`. En Firebase Authentication, agregá ese dominio en **Authorized domains**. Publicá las reglas e índices de [`firestore.rules`](./firestore.rules), [`firestore.indexes.json`](./firestore.indexes.json) y [`storage.rules`](./storage.rules) con `firebase deploy --only firestore,storage`.
+4. Esperá a que termine el deploy y abrí la URL `onrender.com`. En Firebase Authentication, agregá ese dominio en **Authorized domains**. Publicá las reglas e índices de [`firestore.rules`](./firestore.rules) y [`firestore.indexes.json`](./firestore.indexes.json) con `firebase deploy --only firestore`.
 5. En el panel de desarrolladores de Mercado Pago, creá una aplicación de prueba y copiá el Access Token que aparece en **Pruebas → Credenciales de prueba**. Configurá ese valor y el `MERCADO_PAGO_WEBHOOK_SECRET` como secretos en Render. Dejá `MERCADO_PAGO_MODE=sandbox`. Configurá la URL de notificaciones como `https://TU-SERVICIO.onrender.com/api/payments/mercadopago/webhook` y el mismo secreto de firma en Render. Para probar, iniciá el checkout en una ventana de incógnito con una **cuenta compradora de prueba** de Mercado Pago (distinta de la cuenta vendedora); no uses datos de tarjetas reales. Elegí **Elegir otro medio de pago** e ingresá una tarjeta de prueba de la documentación de Mercado Pago, su vencimiento y código de seguridad, y el titular `APRO` con DNI `12345678` para simular un pago aprobado.
 6. Comprobá `https://TU-SERVICIO.onrender.com/api/health`. La API informa si Firebase Admin, correo y credenciales de pago están configurados, sin revelar secretos. El endpoint de pagos responde `503` hasta que estén configurados los secretos sandbox. El correo es opcional para navegar/probar el resto; sin un proveedor configurado no se enviarán correos de verificación ni recuperación.
 
