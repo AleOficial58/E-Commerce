@@ -7248,6 +7248,10 @@ html[data-theme='dark'] .announcement {
   background: #30242b;
 }
 
+html[data-theme='dark'] .announcement-controls span {
+  color: #c2aeb8;
+}
+
 html[data-theme='dark'] .hero,
 html[data-theme='dark'] .inspiration,
 html[data-theme='dark'] .newsletter {
@@ -7312,6 +7316,132 @@ html[data-theme='dark'] .admin-review-media-preview {
   border-color: #493c45;
 }
 
+html[data-theme='dark'] .category-tab:not(.active),
+html[data-theme='dark'] .sale-filter {
+  border-color: #51454e;
+  background: #2d272e;
+  color: #d5c9cf;
+}
+
+html[data-theme='dark'] .category-tab:not(.active) .category-tab-count {
+  color: #b9abb2;
+}
+
+html[data-theme='dark'] .category-tab:not(.active):hover,
+html[data-theme='dark'] .sale-filter:hover,
+html[data-theme='dark'] .sale-filter.active {
+  border-color: #745260;
+  background: #49313c;
+  color: #f4e8ed;
+}
+
+html[data-theme='dark'] .product-price strong,
+html[data-theme='dark'] .product-rating b,
+html[data-theme='dark'] .product-rating small,
+html[data-theme='dark'] .product-reviews-link {
+  color: #d5c9cf;
+}
+
+html[data-theme='dark'] .product-reviews-link:hover {
+  color: #f0b6c7;
+}
+
+html[data-theme='dark'] .product-price del {
+  color: #b9abb2;
+}
+
+html[data-theme='dark'] .product-breadcrumbs,
+html[data-theme='dark'] .product-detail-rating,
+html[data-theme='dark'] .product-detail-price > span,
+html[data-theme='dark'] .product-detail-purchase > label,
+html[data-theme='dark'] .product-detail-price > del,
+html[data-theme='dark'] .product-detail-trust p,
+html[data-theme='dark'] .product-detail-trust small,
+html[data-theme='dark'] .product-detail-payment-card p,
+html[data-theme='dark'] .product-page-reviews-heading p,
+html[data-theme='dark'] .review-empty,
+html[data-theme='dark'] .auth-switch,
+html[data-theme='dark'] .product-seller-card small,
+html[data-theme='dark'] .product-seller-card em,
+html[data-theme='dark'] .product-detail-footer {
+  color: #c2b4bc;
+}
+
+html[data-theme='dark'] .product-breadcrumbs strong,
+html[data-theme='dark'] .product-detail-rating strong,
+html[data-theme='dark'] .product-detail-price > strong,
+html[data-theme='dark'] .product-detail-trust strong,
+html[data-theme='dark'] .product-seller-card strong,
+html[data-theme='dark'] .product-detail-payment-card h3,
+html[data-theme='dark'] .product-page-reviews-heading h2,
+html[data-theme='dark'] .product-review-list h3,
+html[data-theme='dark'] .product-review-form-section h3,
+html[data-theme='dark'] .product-related-section h2,
+html[data-theme='dark'] .product-related-card strong {
+  color: #f0e8ec;
+}
+
+html[data-theme='dark'] .product-detail-purchase .quantity-control input {
+  color: #f0e8ec;
+}
+
+html[data-theme='dark'] .product-related-card,
+html[data-theme='dark'] .product-related-card span,
+html[data-theme='dark'] .auth-switch strong,
+html[data-theme='dark'] .product-detail-footer > a:last-child {
+  color: #d5c9cf;
+}
+
+html[data-theme='dark'] .product-related-card {
+  border-color: #493c45;
+  background: #302931;
+}
+
+html[data-theme='dark'] .product-seller-card {
+  border-color: #51414b;
+  background: #332831;
+}
+
+html[data-theme='dark'] .product-seller-mark {
+  background: #49313c;
+  color: #f0c0ce;
+}
+
+html[data-theme='dark'] .product-detail-footer {
+  border-color: #413740;
+}
+
+html[data-theme='dark'] .auth-modal form label,
+html[data-theme='dark'] .password-reset {
+  color: #d5c9cf;
+}
+
+html[data-theme='dark'] .auth-mark {
+  background: #49313c;
+  color: #f0c0ce;
+}
+
+html[data-theme='dark'] .hero-note {
+  color: #c2b4bc;
+}
+
+html[data-theme='dark'] .hero-note strong {
+  color: #f0e8ec;
+}
+
+html[data-theme='dark'] .hero-sticker b {
+  color: #633649;
+}
+
+html[data-theme='dark'] .sort-control {
+  color: #c2b4bc;
+}
+
+html[data-theme='dark'] .benefit-icon {
+  background: #49313c;
+  color: #f0c0ce;
+}
+
 html[data-theme='dark'] .main-nav a,
 html[data-theme='dark'] .main-nav button,
 html[data-theme='dark'] .footer-links a,
@@ -7338,6 +7468,9 @@ html[data-theme='dark'] .eyebrow,
 html[data-theme='dark'] .hero-copy > p,
 html[data-theme='dark'] .inspiration-copy > p,
 html[data-theme='dark'] .section-heading > p,
+html[data-theme='dark'] .collection-intro,
+html[data-theme='dark'] .product-rail-heading p,
+html[data-theme='dark'] .newsletter > p,
 html[data-theme='dark'] .product-card p,
 html[data-theme='dark'] .account-welcome p,
 html[data-theme='dark'] .account-welcome > div > span,
@@ -7353,6 +7486,31 @@ html[data-theme='dark'] .auth-action-help,
 html[data-theme='dark'] .admin-review-media-details > p,
 html[data-theme='dark'] .admin-review-media-details > span {
   color: #c2b4bc;
+}
+
+html[data-theme='dark'] .notification-overline,
+html[data-theme='dark'] .notification-panel-header h2 span,
+html[data-theme='dark'] .notification-filters button:not(.is-active),
+html[data-theme='dark'] .notification-preferences-link,
+html[data-theme='dark'] .notification-mark-all,
+html[data-theme='dark'] .notification-empty p,
+html[data-theme='dark'] .notification-preferences p,
+html[data-theme='dark'] .notification-preferences small,
+html[data-theme='dark'] .notification-item time,
+html[data-theme='dark'] .notification-loading p,
+html[data-theme='dark'] .notification-panel-footer,
+html[data-theme='dark'] .notification-panel-footer button {
+  color: #c2b4bc;
+}
+
+html[data-theme='dark'] .notification-empty strong,
+html[data-theme='dark'] .notification-preferences strong {
+  color: #f0e8ec;
+}
+
+html[data-theme='dark'] .notification-preferences-icon {
+  background: #493a4a;
+  color: #dfc3e5;
 }
 
 html[data-theme='dark'] input,
