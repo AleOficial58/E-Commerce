@@ -97,6 +97,8 @@ export function OrderStatusPage({
   const [cancelLoading, setCancelLoading] = useState(false)
   const [cancelError, setCancelError] = useState('')
   const [cancelMessage, setCancelMessage] = useState('')
+  const [receiptBusy, setReceiptBusy] = useState(false)
+  const [receiptError, setReceiptError] = useState('')
   const fulfillmentSteps = order?.shipmentType === 'international'
     ? internationalShipmentSteps
     : order?.shipmentType === 'local'
@@ -156,6 +158,41 @@ export function OrderStatusPage({
       : order?.paymentTypeId === 'account_money'
         ? 'Dinero en cuenta'
         : ''
+
+  async function handleReceiptAction(action: 'download' | 'print') {
+    if (
+      !order ||
+      order.paymentStatus !== 'approved' ||
+      order.status === 'cancelled' ||
+      order.status === 'cancellation_refund_pending'
+    ) return
+    const printWindow = action === 'print' ? window.open('', '_blank') : null
+    if (action === 'print' && !printWindow) {
+      setReceiptError('Permití las ventanas emergentes para abrir e imprimir el comprobante.')
+      return
+    }
+
+    setReceiptBusy(true)
+    setReceiptError('')
+    try {
+      const { createPurchaseReceiptPdf } = await import('../lib/purchaseReceipt')
+      const pdf = createPurchaseReceiptPdf(order, money)
+      if (action === 'download') {
+        pdf.save(`Comprobante-Lumina-${order.id}.pdf`)
+        return
+      }
+      pdf.autoPrint()
+      const pdfUrl = URL.createObjectURL(pdf.output('blob'))
+      printWindow?.location.replace(pdfUrl)
+      window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 60_000)
+    } catch (error) {
+      printWindow?.close()
+      console.error('No se pudo generar el comprobante de compra.', error)
+      setReceiptError(error instanceof Error ? error.message : 'No pudimos generar el comprobante. Intentá nuevamente.')
+    } finally {
+      setReceiptBusy(false)
+    }
+  }
 
   return (
     <main className="order-page">
@@ -401,6 +438,25 @@ export function OrderStatusPage({
                 ? 'El avance se actualiza cuando Lúmina cambia el estado del pedido.'
                 : 'El estado del pedido se actualiza cuando recibimos la confirmación de Mercado Pago.'}
             </p>
+            {order?.paymentStatus === 'approved' &&
+              order.status !== 'cancelled' &&
+              order.status !== 'cancellation_refund_pending' && (
+                <div className="order-receipt-actions">
+                  <button
+                    className="order-receipt-button"
+                    type="button"
+                    onClick={() => void handleReceiptAction('download')}
+                    disabled={receiptBusy}
+                  >{receiptBusy ? 'Preparando comprobante…' : 'Descargar comprobante PDF'}</button>
+                  <button
+                    className="order-receipt-button order-receipt-print"
+                    type="button"
+                    onClick={() => void handleReceiptAction('print')}
+                    disabled={receiptBusy}
+                  >Imprimir comprobante</button>
+                </div>
+              )}
+            {receiptError && <p className="order-cancel-error" role="alert">{receiptError}</p>}
             {detailMode && order?.canCancel && onCancel && (
               <div className="order-cancel-area" id="order-cancel-area">
                 <p>Podés cancelar antes de que el equipo despache el pedido. Si el pago ya fue acreditado, se solicitará el reembolso a Mercado Pago.</p>

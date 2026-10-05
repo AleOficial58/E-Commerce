@@ -2925,7 +2925,7 @@ app.post(
         !Array.isArray(productIds) ||
         productIds.length > 100 ||
         productIds.some((productId: unknown) =>
-          typeof productId !== 'string' || !/^[a-z0-9-]{1,80}$/.test(productId),
+          typeof productId !== 'string' || !/^[\p{L}\p{N}-]{1,80}$/u.test(productId),
         )
       ) {
         throw new ApiError('La lista de productos no es válida.', 400)

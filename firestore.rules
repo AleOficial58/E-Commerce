@@ -89,7 +89,10 @@ service cloud.firestore {
         && data.name is string
         && data.name.size() > 0
         && data.name.size() <= 100
-        && data.category in ['Accesorios', 'Bijou', 'Bolsos', 'Cabello']
+        && (
+          data.category in ['Accesorios', 'Bijou', 'Bolsos', 'Cabello']
+          || exists(/databases/$(database)/documents/categories/$(data.category))
+        )
         && data.description is string
         && data.description.size() <= 5000
         && data.price is number
@@ -176,6 +179,19 @@ service cloud.firestore {
           || hasMinimumProductImages(request.resource.data)
         );
       allow delete: if isAdmin();
+    }
+
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['id', 'name', 'createdAt', 'updatedAt'])
+        && request.resource.data.id == categoryId
+        && request.resource.data.name == categoryId
+        && categoryId.size() > 0
+        && categoryId.size() <= 40
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp;
+      allow update, delete: if false;
     }
 
     match /orders/{orderId} {

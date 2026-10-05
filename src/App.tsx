@@ -147,7 +147,7 @@ function getAccountAvatar(seed: string): string {
   return `data:image/svg+xml,${encodeURIComponent(svg)}`
 }
 
-const categories = ['Todo', 'Accesorios', 'Bijou', 'Bolsos', 'Cabello']
+const defaultCategories = ['Accesorios', 'Bijou', 'Bolsos', 'Cabello']
 type ProductSort = 'recommended' | 'price-asc' | 'price-desc' | 'rating' | 'newest'
 const isProductSort = (value: string): value is ProductSort =>
   ['recommended', 'price-asc', 'price-desc', 'rating', 'newest'].includes(value)
@@ -1054,6 +1054,7 @@ function Storefront() {
   const [favorites, setFavorites] = useState<string[]>(() => readGuestStore().favorites)
   const [cart, setCart] = useState<Record<string, number>>(() => readGuestStore().cart)
   const [catalog, setCatalog] = useState<Product[]>(products)
+  const [customCategories, setCustomCategories] = useState<string[]>([])
   const [reviewSummaries, setReviewSummaries] = useState<Record<string, ReviewSummary>>({})
   const [reviewSummaryError, setReviewSummaryError] = useState('')
   const [productRouteId, setProductRouteId] = useState(getProductRouteId)
@@ -1090,7 +1091,7 @@ function Storefront() {
   const [adminAccessStatus, setAdminAccessStatus] = useState<'checking' | 'admin' | 'not-admin' | 'error'>('checking')
   const [adminAccessError, setAdminAccessError] = useState('')
   const [adminOpen, setAdminOpen] = useState(() => window.location.pathname === '/admin')
-  const [adminTab, setAdminTab] = useState<'orders' | 'products' | 'reviews' | 'access'>('orders')
+  const [adminTab, setAdminTab] = useState<'orders' | 'products' | 'categories' | 'reviews' | 'access'>('orders')
   const [adminAccessibility, setAdminAccessibility] = useState(readAdminAccessibilitySettings)
   const [adminOrders, setAdminOrders] = useState<AdminOrder[]>([])
   const [adminLoading, setAdminLoading] = useState(false)
@@ -1098,6 +1099,9 @@ function Storefront() {
   const [adminWishlistLoading, setAdminWishlistLoading] = useState(false)
   const [adminWishlistError, setAdminWishlistError] = useState('')
   const [adminWishlistRefresh, setAdminWishlistRefresh] = useState(0)
+  const [adminCategoryDraft, setAdminCategoryDraft] = useState('')
+  const [adminCategoryBusy, setAdminCategoryBusy] = useState(false)
+  const [adminCategoryError, setAdminCategoryError] = useState('')
   const [pendingReviewMedia, setPendingReviewMedia] = useState<PendingReviewMedia[]>([])
   const [adminProductReviews, setAdminProductReviews] = useState<AdminProductReview[]>([])
   const [adminReviewMediaLoading, setAdminReviewMediaLoading] = useState(false)
@@ -1748,6 +1752,38 @@ function Storefront() {
   }, [])
 
   useEffect(() => {
+    if (!firebaseReady) return
+    let active = true
+    void getFirebaseServices()
+      .then(async ({ db, firestoreSdk }) => {
+        const snapshot = await firestoreSdk.getDocs(firestoreSdk.collection(db, 'categories'))
+        if (!active) return
+        const names = snapshot.docs.flatMap((category) => {
+          const data: Record<string, unknown> = category.data()
+          if (typeof data.name !== 'string') return []
+          const name = data.name
+          return name === category.id &&
+            name.trim() === name &&
+            name.length > 0 &&
+            name.length <= 40 &&
+            !name.includes('/') &&
+            !defaultCategories.some((base) => base.toLocaleLowerCase('es-AR') === name.toLocaleLowerCase('es-AR'))
+            ? [name]
+            : []
+        })
+        setCustomCategories([...new Set(names)].sort((left, right) => left.localeCompare(right, 'es-AR')))
+        setAdminCategoryError('')
+      })
+      .catch((error: unknown) => {
+        console.error('No se pudieron cargar las categorías personalizadas.', error)
+        if (active) setAdminCategoryError('No pudimos cargar las categorías. Revisá tu conexión e intentá actualizar.')
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
     if (!user || !firebaseReady) return
     let active = true
     void checkAdminAccess(user)
@@ -2029,6 +2065,10 @@ function Storefront() {
       return 0
     })
   }, [activeCategory, catalog, productSort, reviewSummaries, saleOnly, search])
+  const categories = useMemo(
+    () => ['Todo', ...defaultCategories, ...customCategories],
+    [customCategories],
+  )
   const categoryCounts = useMemo(
     () => Object.fromEntries(
       categories.map((category) => [
@@ -2038,7 +2078,7 @@ function Storefront() {
         ).length,
       ]),
     ),
-    [catalog],
+    [catalog, categories],
   )
   const activeCatalog = useMemo(
     () => catalog.filter((product) => product.active !== false),
@@ -2537,7 +2577,7 @@ function Storefront() {
       !name ||
       !description ||
       description.length > 5000 ||
-      !['Accesorios', 'Bijou', 'Bolsos', 'Cabello'].includes(category) ||
+      !categories.slice(1).includes(category) ||
       !Number.isFinite(price) ||
       !Number.isSafeInteger(price) ||
       price <= 0 ||
@@ -2613,6 +2653,39 @@ function Storefront() {
       setAdminError(error instanceof Error ? error.message : 'No se pudo guardar el producto.')
     } finally {
       setAdminProductBusy(false)
+    }
+  }
+
+  async function handleAdminCategoryCreate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!user || !isAdmin || adminCategoryBusy) return
+    const name = adminCategoryDraft.trim().replace(/\s+/g, ' ')
+    if (!name || name.length > 40 || name.includes('/') || name.includes('\\')) {
+      setAdminCategoryError('Usá un nombre de hasta 40 caracteres, sin barras.')
+      return
+    }
+    if (categories.slice(1).some((category) => category.toLocaleLowerCase('es-AR') === name.toLocaleLowerCase('es-AR'))) {
+      setAdminCategoryError('Ya existe una categoría con ese nombre.')
+      return
+    }
+
+    setAdminCategoryBusy(true)
+    setAdminCategoryError('')
+    try {
+      const { db, firestoreSdk } = await getFirebaseServices()
+      await firestoreSdk.setDoc(firestoreSdk.doc(db, 'categories', name), {
+        id: name,
+        name,
+        createdAt: firestoreSdk.serverTimestamp(),
+        updatedAt: firestoreSdk.serverTimestamp(),
+      })
+      setCustomCategories((current) => [...current, name].sort((left, right) => left.localeCompare(right, 'es-AR')))
+      setAdminCategoryDraft('')
+    } catch (error) {
+      console.error('No se pudo crear la categoría.', error)
+      setAdminCategoryError(error instanceof Error ? error.message : 'No pudimos crear la categoría. Intentá nuevamente.')
+    } finally {
+      setAdminCategoryBusy(false)
     }
   }
 
@@ -3776,6 +3849,7 @@ function Storefront() {
                     <button aria-current={adminTab === 'orders' ? 'page' : undefined} className={adminTab === 'orders' ? 'active' : ''} onClick={() => setAdminTab('orders')}><Icon name="bag" size={17} /> <span>Pedidos</span><b>{adminOrders.length}</b></button>
                     <button aria-current={adminTab === 'reviews' ? 'page' : undefined} className={adminTab === 'reviews' ? 'active' : ''} onClick={() => { setAdminError(''); setAdminReviewMediaLoading(true); setAdminProductReviewsLoading(true); setAdminReviewMediaCursor(''); setAdminProductReviewsCursor(''); setAdminReviewMediaRefresh((current) => current + 1); setAdminTab('reviews') }}><Icon name="sparkles" size={17} /> <span>Opiniones</span><b>{adminProductReviews.length}</b></button>
                     <button aria-current={adminTab === 'products' ? 'page' : undefined} className={adminTab === 'products' ? 'active' : ''} onClick={() => setAdminTab('products')}><Icon name="box" size={17} /> <span>Productos</span><b>{catalog.filter((product) => product.active !== false).length}</b></button>
+                    <button aria-current={adminTab === 'categories' ? 'page' : undefined} className={adminTab === 'categories' ? 'active' : ''} onClick={() => { setAdminCategoryError(''); setAdminTab('categories') }}><Icon name="box" size={17} /> <span>Categorías</span><b>{categories.length - 1}</b></button>
                     <button aria-current={adminTab === 'access' ? 'page' : undefined} className={adminTab === 'access' ? 'active' : ''} onClick={() => setAdminTab('access')}><Icon name="user" size={17} /> <span>Accesos</span></button>
                   </nav>
                 </div>
@@ -3823,8 +3897,8 @@ function Storefront() {
               <main className="admin-main" id="admin-main" tabIndex={-1}>
                 <div className="admin-main-topline">
                   <div>
-                    <span className="admin-main-kicker">LÚMINA · {adminTab === 'orders' ? 'OPERACIONES' : adminTab === 'reviews' ? 'COMUNIDAD' : adminTab === 'products' ? 'CATÁLOGO' : 'EQUIPO'}</span>
-                    <h2>{adminTab === 'orders' ? 'Pedidos' : adminTab === 'reviews' ? 'Opiniones' : adminTab === 'products' ? 'Productos' : 'Accesos'}</h2>
+                    <span className="admin-main-kicker">LÚMINA · {adminTab === 'orders' ? 'OPERACIONES' : adminTab === 'reviews' ? 'COMUNIDAD' : adminTab === 'products' || adminTab === 'categories' ? 'CATÁLOGO' : 'EQUIPO'}</span>
+                    <h2>{adminTab === 'orders' ? 'Pedidos' : adminTab === 'reviews' ? 'Opiniones' : adminTab === 'products' ? 'Productos' : adminTab === 'categories' ? 'Categorías' : 'Accesos'}</h2>
                   </div>
                   <span className="admin-main-account"><Icon name="user" size={16} /> {user.email ?? 'Administrador'}</span>
                 </div>
@@ -3980,7 +4054,7 @@ function Storefront() {
                 <div className="admin-section-heading"><div><h3>{adminEditingProductId ? 'Editar publicación' : 'Publicar un producto'}</h3><p>Subí fotos reales y distintas del producto a Cloudinary. Cada publicación necesita al menos 5 y admite hasta 8.</p></div></div>
                 <form className="admin-product-form" onSubmit={(event) => void handleAdminProductSave(event)}>
                   <label>Nombre<input name="name" value={adminProductDraft.name} onChange={(event) => setAdminProductDraft((current) => ({ ...current, name: event.target.value }))} maxLength={100} required disabled={adminProductUploadBusy} /></label>
-                  <label>Categoría<select name="category" value={adminProductDraft.category} onChange={(event) => setAdminProductDraft((current) => ({ ...current, category: event.target.value }))}><option>Bijou</option><option>Accesorios</option><option>Bolsos</option><option>Cabello</option></select></label>
+                  <label>Categoría<select name="category" value={adminProductDraft.category} onChange={(event) => setAdminProductDraft((current) => ({ ...current, category: event.target.value }))}>{categories.slice(1).map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
                   <label>Precio (ARS)<input name="price" type="number" min="1" step="1" value={adminProductDraft.price} onChange={(event) => setAdminProductDraft((current) => ({ ...current, price: event.target.value }))} required /></label>
                   <label>Precio anterior (ARS, opcional)<input name="originalPrice" type="number" min="1" step="1" value={adminProductDraft.originalPrice} onChange={(event) => setAdminProductDraft((current) => ({ ...current, originalPrice: event.target.value }))} aria-describedby="admin-product-offer-help" /></label>
                   <p className="admin-product-offer-help admin-product-full" id="admin-product-offer-help">Si es mayor al precio actual, el producto mostrará el precio anterior tachado y la etiqueta «Oferta».</p>
@@ -4121,6 +4195,41 @@ function Storefront() {
                     </article>
                   ))}
                 </div>
+              </section>
+            ) : adminTab === 'categories' ? (
+              <section className="admin-categories">
+                <div className="admin-section-heading">
+                  <div><h3>Organizá el catálogo</h3><p>Las categorías nuevas aparecen en la tienda y en el formulario de productos.</p></div>
+                </div>
+                {adminCategoryError && <p className="profile-form-error admin-error" role="alert">{adminCategoryError}</p>}
+                <form className="admin-category-form" onSubmit={(event) => void handleAdminCategoryCreate(event)}>
+                  <label htmlFor="admin-category-name">Nombre de la categoría</label>
+                  <div className="admin-category-controls">
+                    <input
+                      id="admin-category-name"
+                      value={adminCategoryDraft}
+                      onChange={(event) => setAdminCategoryDraft(event.target.value)}
+                      maxLength={40}
+                      placeholder="Ej.: Decoración"
+                      required
+                      disabled={adminCategoryBusy}
+                    />
+                    <button className="button button-dark" type="submit" disabled={adminCategoryBusy}>
+                      {adminCategoryBusy ? 'Guardando…' : 'Crear categoría'}
+                    </button>
+                  </div>
+                </form>
+                <ul className="admin-category-list" aria-label="Categorías disponibles">
+                  {categories.slice(1).map((category) => {
+                    const productCount = catalog.filter((product) => product.category === category).length
+                    const isCustom = customCategories.includes(category)
+                    return (
+                      <li key={category}>
+                        <div><strong>{category}</strong><span>{productCount} {productCount === 1 ? 'producto' : 'productos'} · {isCustom ? 'Personalizada' : 'Predeterminada'}</span></div>
+                      </li>
+                    )
+                  })}
+                </ul>
               </section>
             ) : (
               <section className="admin-access">
