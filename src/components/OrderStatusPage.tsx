@@ -158,6 +158,12 @@ export function OrderStatusPage({
       : order?.paymentTypeId === 'account_money'
         ? 'Dinero en cuenta'
         : ''
+  const showOrderMessages = detailMode || (
+    status === 'approved' &&
+    order?.paymentStatus === 'approved' &&
+    order.status !== 'cancelled' &&
+    order.status !== 'cancellation_refund_pending'
+  )
 
   async function handleReceiptAction(action: 'download' | 'print') {
     if (
@@ -399,7 +405,7 @@ export function OrderStatusPage({
                 </div>
               </section>
             )}
-            {detailMode && (
+            {showOrderMessages && (
               <OrderMessages
                 key={`${orderId}-${messagePrompt}`}
                 user={user}

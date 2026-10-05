@@ -11099,3 +11099,20 @@ html[data-theme='dark'] .admin-main .admin-order-status {
       transition: none;
     }
   }
+
+html[data-theme='dark'] .order-page {
+  background: #171419;
+}
+
+html[data-theme='dark'] .order-status-card,
+html[data-theme='dark'] .order-page-card {
+  background: #211d24;
+}
+
+html[data-theme='dark'] .order-page-card.order-purchase-summary {
+  background: #262128;
+}
+
+html[data-theme='dark'] .order-status-item {
+  background: transparent;
+}

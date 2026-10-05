@@ -3109,6 +3109,7 @@ function Storefront() {
           setPaymentRefreshCount((count) => count + 1)
         }}
         onBack={returnToStore}
+        onIncomingChatMessage={handleIncomingChatMessage}
         money={money}
       />
     )
