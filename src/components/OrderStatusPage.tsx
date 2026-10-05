@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { User } from 'firebase/auth'
 import type { CustomerOrderStatus, OrderMessage } from '../lib/commerceApi'
+import { ThemeToggleButton } from '../lib/theme'
 import { OrderMessages } from './OrderMessages'
 
 type PaymentReturnStatus = 'checking' | 'approved' | 'pending' | 'failed' | 'review' | 'error'
@@ -162,7 +163,10 @@ export function OrderStatusPage({
         <button className="order-page-brand" type="button" onClick={onBack} aria-label="Volver a la tienda">
           lúmina<span aria-hidden="true">✳</span>
         </button>
-        <span>{detailMode ? 'Detalle de tu compra' : 'Estado de tu compra'}</span>
+        <div className="order-page-header-actions">
+          <span>{detailMode ? 'Detalle de tu compra' : 'Estado de tu compra'}</span>
+          <ThemeToggleButton />
+        </div>
       </header>
       <div className="order-page-content">
         <nav className="order-page-breadcrumb" aria-label="Navegación">

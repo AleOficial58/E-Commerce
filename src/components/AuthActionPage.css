@@ -36,7 +36,7 @@
   vertical-align: top;
 }
 
-.auth-action-header > span {
+.auth-action-header-actions > span {
   color: #9f777f;
   font-size: 9px;
   font-weight: 700;
@@ -195,7 +195,7 @@
     font-size: 27px;
   }
 
-  .auth-action-header > span {
+  .auth-action-header-actions > span {
     font-size: 7px;
     letter-spacing: .11em;
   }

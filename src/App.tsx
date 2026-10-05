@@ -51,6 +51,7 @@ import { OrderStatusPage } from './components/OrderStatusPage'
 import { OrderMessages } from './components/OrderMessages'
 import { NotificationCenter } from './components/NotificationCenter'
 import { useNotificationStore } from './lib/notificationStore'
+import { ThemeToggleButton } from './lib/theme'
 import 'sweetalert2/dist/sweetalert2.min.css'
 import './App.css'
 
@@ -110,6 +111,35 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     case 'user':
       return <svg {...common}><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>
   }
+}
+
+function getAccountAvatar(seed: string): string {
+  let hash = 2166136261
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = Math.imul(hash ^ seed.charCodeAt(index), 16777619)
+  }
+  const variant = hash >>> 0
+  const backgrounds = [
+    ['#f5c5bd', '#f5e1bd'],
+    ['#c4d7e8', '#e3cce7'],
+    ['#c8dfd2', '#f1d5bb'],
+    ['#ddd0ed', '#f3cbd5'],
+  ]
+  const skins = ['#f2c7a5', '#d99b73', '#f4d7b7', '#bb805e']
+  const hairColors = ['#382b33', '#5b3831', '#272733', '#8b563e']
+  const clothes = ['#815d75', '#496c72', '#a86469', '#59658b']
+  const palette = backgrounds[variant % backgrounds.length]
+  const skin = skins[(variant >>> 3) % skins.length]
+  const hair = hairColors[(variant >>> 6) % hairColors.length]
+  const clothing = clothes[(variant >>> 9) % clothes.length]
+  const hairstyles = [
+    'M26 49c-5-27 10-39 27-39 21 0 31 15 25 42l-7-12c-9-2-19-7-25-14-4 9-10 15-20 18Z',
+    'M24 48C19 21 32 10 51 10c22 0 30 17 24 40l-9-11c-4-14-17-18-29-13l-7 23Z',
+    'M23 48c-5-24 8-39 29-39 20 0 31 16 25 42l-9-13c-13 0-20-5-26-13-5 10-10 17-19 23Z',
+  ]
+  const hairShape = hairstyles[(variant >>> 12) % hairstyles.length]
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${palette[0]}"/><stop offset="1" stop-color="${palette[1]}"/></linearGradient></defs><rect width="100" height="100" rx="50" fill="url(#bg)"/><circle cx="17" cy="28" r="3" fill="#fff" opacity=".65"/><circle cx="82" cy="24" r="2" fill="#fff" opacity=".8"/><path d="M17 100c2-21 15-31 33-31s31 10 33 31" fill="${clothing}"/><path d="M39 64h22v17H39z" fill="${skin}"/><ellipse cx="50" cy="45" rx="24" ry="28" fill="${skin}"/><path d="${hairShape}" fill="${hair}"/><circle cx="41" cy="48" r="1.8" fill="#392b2d"/><circle cx="59" cy="48" r="1.8" fill="#392b2d"/><path d="M45 59c3 3 7 3 10 0" fill="none" stroke="#a65e61" stroke-width="2" stroke-linecap="round"/><path d="M34 42c3-3 7-4 11-2m10 0c4-2 8-1 11 2" fill="none" stroke="${hair}" stroke-width="3" stroke-linecap="round"/></svg>`
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`
 }
 
 const categories = ['Todo', 'Accesorios', 'Bijou', 'Bolsos', 'Cabello']
@@ -539,9 +569,12 @@ function ProductDetailPage({
           <Icon name="arrow" size={16} /> Volver a la tienda
         </button>
         <a className="wordmark product-detail-wordmark" href="/" aria-label="Lúmina, inicio">lúmina<span className="wordmark-star">✳</span></a>
-        <button className="product-detail-cart-link" type="button" onClick={onOpenCart} aria-label={cartCount ? `Tu bolso, ${cartCount} unidades` : 'Tu bolso vacío'}>
-          <Icon name="bag" size={16} /> Tu bolso <span>{cartCount || ''}</span>
-        </button>
+        <div className="product-detail-header-actions">
+          <ThemeToggleButton />
+          <button className="product-detail-cart-link" type="button" onClick={onOpenCart} aria-label={cartCount ? `Tu bolso, ${cartCount} unidades` : 'Tu bolso vacío'}>
+            <Icon name="bag" size={16} /> Tu bolso <span>{cartCount || ''}</span>
+          </button>
+        </div>
       </header>
 
       <div className="product-detail-container">
@@ -2698,6 +2731,7 @@ function Storefront() {
               setSelectedCustomerOrderMessage('')
             }}
           />
+          <ThemeToggleButton />
           <button
             className="icon-button account-button"
             aria-label={authLoading ? 'Verificando sesión' : user ? 'Abrir mi cuenta' : 'Ingresar a mi cuenta'}
@@ -2705,7 +2739,9 @@ function Storefront() {
             disabled={authLoading}
             onClick={() => (user ? setAccountOpen(true) : setAuthOpen(true))}
           >
-            <Icon name="user" />
+            {user
+              ? <img className="header-account-avatar" src={getAccountAvatar(user.uid)} alt="" />
+              : <Icon name="user" />}
           </button>
           <button
             className="icon-button bag-button"
@@ -2983,7 +3019,12 @@ function Storefront() {
               <button className="icon-button" onClick={() => setAccountOpen(false)} aria-label="Cerrar mi cuenta"><Icon name="close" /></button>
             </div>
             <div className="account-welcome">
-              <span className="account-avatar">{(customerProfile.name || user.displayName || user.email || 'L').charAt(0).toLocaleUpperCase('es-AR')}</span>
+              <img
+                className="account-avatar"
+                src={getAccountAvatar(user.uid)}
+                alt=""
+                aria-hidden="true"
+              />
               <div>
                 <span>¡Hola{customerProfile.name || user.displayName ? ',' : ''}</span>
                 <h3>{customerProfile.name || user.displayName || user.email?.split('@')[0] || 'qué lindo verte'}</h3>

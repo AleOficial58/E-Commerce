@@ -1,4 +1,5 @@
 import type { CustomerOrderSummary } from '../lib/commerceApi'
+import { ThemeToggleButton } from '../lib/theme'
 
 type Props = {
   orders: CustomerOrderSummary[]
@@ -40,7 +41,10 @@ export function CustomerOrdersPage({
         <button className="order-page-brand" type="button" onClick={onBack} aria-label="Volver a la tienda">
           lúmina<span aria-hidden="true">✳</span>
         </button>
-        <span>Tu espacio Lúmina</span>
+        <div className="order-page-header-actions">
+          <span>Tu espacio Lúmina</span>
+          <ThemeToggleButton />
+        </div>
       </header>
       <div className="customer-orders-content">
         <button className="customer-orders-back" type="button" onClick={onBack}>← Volver a la tienda</button>

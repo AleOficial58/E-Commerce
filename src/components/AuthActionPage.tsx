@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { firebaseReady, getFirebaseServices } from '../lib/firebase'
+import { ThemeToggleButton } from '../lib/theme'
 import './AuthActionPage.css'
 
 type ActionStatus = 'loading' | 'ready' | 'success' | 'error'
@@ -165,7 +166,10 @@ export function AuthActionPage({
     <main className="auth-action-page">
       <header className="auth-action-header">
         <ActionBrand />
-        <span>UN DETALLE, TODO TU ESTILO</span>
+        <div className="auth-action-header-actions">
+          <span>UN DETALLE, TODO TU ESTILO</span>
+          <ThemeToggleButton />
+        </div>
       </header>
 
       <section className="auth-action-card" aria-labelledby="action-title">

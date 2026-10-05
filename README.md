@@ -78,7 +78,8 @@ Para revisar el diseño localmente sin enviar correos ni cambiar contraseñas, a
 - Registro e inicio de sesión con Firebase Authentication.
 - Envío y reenvío de verificación de email, comprobación del estado y recuperación de contraseña.
 - Correos transaccionales de verificación/restablecimiento con diseño Lúmina, enviados desde la API con Firebase Admin y SMTP.
-- Perfil editable en `users/{userId}` en Firestore, con datos de contacto, domicilio y un indicador visual de completitud.
+- Perfil editable en `users/{userId}` en Firestore, con datos de contacto, domicilio y un indicador visual de completitud. Cada cuenta muestra un avatar ilustrado determinístico generado en el navegador, sin subir imágenes ni requerir Firebase Storage.
+- Tema claro/oscuro con preferencia persistida por navegador y selección inicial según el tema del sistema.
 - Checkout con Mercado Pago Checkout Pro en sandbox, reserva temporal de stock y pedidos pendientes guardados en Firestore.
 - Confirmación de pagos por webhook firmado y consultado contra la API de Mercado Pago; la pantalla de retorno nunca da por aprobado un pago por la URL.
 - Páginas de detalle de producto responsive y navegables en `/producto/{id}`, con galería de hasta 8 imágenes, descripción extensa, atributos flexibles, stock, compra con cantidad y opiniones verificadas.
