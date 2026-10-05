@@ -9689,7 +9689,9 @@ html[data-theme='dark'] .shopping-guide-intro {
 }
 
 .product-page-reviews {
-  padding: 36px 0 44px;
+  padding: 32px 0 24px;
+  border-radius: 0;
+  background: transparent;
 }
 
 .product-page-reviews-heading {
@@ -9702,17 +9704,24 @@ html[data-theme='dark'] .shopping-guide-intro {
 
 .product-page-reviews .product-reviews-content {
   align-items: start;
-  overflow: visible;
+  overflow: clip;
+  border-radius: 18px;
 }
 
 .product-page-reviews .product-review-list,
 .product-page-reviews .product-review-form-section {
-  padding: 24px;
+  padding: 20px 22px;
 }
 
 .product-page-reviews .product-review-list h3,
 .product-page-reviews .product-review-form-section h3 {
   font-size: 14px;
+}
+
+.product-page-reviews .product-reviews-content.is-empty .product-review-list {
+  display: grid;
+  align-content: center;
+  min-height: 112px;
 }
 
 .product-page-reviews .review-empty,
@@ -9721,8 +9730,29 @@ html[data-theme='dark'] .shopping-guide-intro {
   line-height: 1.65;
 }
 
+.product-page-reviews .product-reviews-content.is-empty .review-empty,
+.product-page-reviews .product-reviews-content.is-empty .review-callout {
+  margin: 0;
+  padding: 13px 15px;
+  border: 1px solid #e9e0e3;
+  border-radius: 12px;
+  background: #fffaf9;
+}
+
+.product-page-reviews .product-reviews-content.is-empty .product-review-form-section {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  min-height: 112px;
+}
+
+.product-page-reviews .product-reviews-content.is-empty .product-review-form-section h3 {
+  margin: 0;
+}
+
 .product-related-section {
-  padding: 38px 0 56px;
+  padding: 28px 0 56px;
+  border-top: 0;
 }
 
 .product-related-card {
@@ -9769,6 +9799,10 @@ html[data-theme='dark'] .product-detail-help-card {
   background: #262128;
 }
 
+html[data-theme='dark'] .product-page-reviews {
+  background: transparent;
+}
+
 html[data-theme='dark'] .product-page-reviews .product-reviews-content {
   border-color: #40363e;
   border-radius: 18px;
@@ -9777,6 +9811,12 @@ html[data-theme='dark'] .product-page-reviews .product-reviews-content {
 
 html[data-theme='dark'] .product-page-reviews .product-review-list {
   border-color: #40363e;
+}
+
+html[data-theme='dark'] .product-page-reviews .product-reviews-content.is-empty .review-empty,
+html[data-theme='dark'] .product-page-reviews .product-reviews-content.is-empty .review-callout {
+  border-color: #493d48;
+  background: #29232a;
 }
 
 html[data-theme='dark'] .product-page-reviews .profile-form-error {
@@ -9833,11 +9873,17 @@ html[data-theme='dark'] .product-related-card {
   }
 
   .product-page-reviews {
-    padding: 28px 0 34px;
+    padding: 26px 0 20px;
   }
 
   .product-page-reviews .product-reviews-content {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .product-page-reviews .product-reviews-content.is-empty .product-review-list,
+  .product-page-reviews .product-reviews-content.is-empty .product-review-form-section {
+    min-height: 0;
+    padding: 16px;
   }
 
   .product-page-reviews .product-review-list {
@@ -9913,12 +9959,20 @@ html[data-theme='dark'] .product-related-card {
 }
 
 .product-detail-main-image {
-  isolation: isolate;
-  background-clip: padding-box;
+  overflow: hidden;
+  border: 0;
+  border-radius: 24px;
+  background: transparent;
+  box-shadow: none;
 }
 
 .product-detail-main-image > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   border-radius: inherit;
+  object-fit: cover;
 }
 
 .admin-product-gallery-editor {
@@ -10058,9 +10112,9 @@ html[data-theme='dark'] .admin-product-image-card > img {
 }
 
 html[data-theme='dark'] .product-detail-main-image {
-  border-color: #554550;
-  background: #29212a;
-  box-shadow: 0 16px 42px rgb(0 0 0 / 24%);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 @media (max-width: 600px) {

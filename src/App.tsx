@@ -766,9 +766,9 @@ function ProductDetailPage({
             <h2>Opiniones de compradores</h2>
             <p>Opiniones habilitadas para clientes con una compra aprobada de este producto.</p>
           </div>
-        <div className="product-reviews-content">
+        <div className={`product-reviews-content${!isLoading && !error && !reviewData?.reviews.length && !reviewData?.canReview ? ' is-empty' : ''}`}>
           <section className="product-review-list" aria-labelledby="product-review-list-title">
-            <h3 id="product-review-list-title">Opiniones de compradores</h3>
+            <h3 id="product-review-list-title">Reseñas publicadas</h3>
             {isLoading ? (
               <p className="review-empty" role="status">Cargando opiniones verificadas…</p>
             ) : error && !reviewData ? (
