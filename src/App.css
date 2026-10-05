@@ -7376,6 +7376,63 @@ html[data-theme='dark'] .order-timeline-detail {
   color: #c2b4bc;
 }
 
+html[data-theme='dark'] .product-reviews-header,
+html[data-theme='dark'] .product-reviews-overview,
+html[data-theme='dark'] .product-review-price,
+html[data-theme='dark'] .product-reviews-content,
+html[data-theme='dark'] .product-review-list,
+html[data-theme='dark'] .product-review-item {
+  border-color: #413740;
+}
+
+html[data-theme='dark'] .product-reviews-header h2,
+html[data-theme='dark'] .product-review-score > strong,
+html[data-theme='dark'] .product-review-price > strong,
+html[data-theme='dark'] .product-review-list h3,
+html[data-theme='dark'] .product-review-form-section h3,
+html[data-theme='dark'] .product-review-item > strong,
+html[data-theme='dark'] .product-review-form > label {
+  color: #f0e8ec;
+}
+
+html[data-theme='dark'] .product-reviews-header p,
+html[data-theme='dark'] .product-review-score > small,
+html[data-theme='dark'] .product-review-price > span,
+html[data-theme='dark'] .product-review-item-heading time,
+html[data-theme='dark'] .product-review-item > p,
+html[data-theme='dark'] .review-empty,
+html[data-theme='dark'] .review-character-count,
+html[data-theme='dark'] .product-review-form > small {
+  color: #c2b4bc;
+}
+
+html[data-theme='dark'] .review-verified-label,
+html[data-theme='dark'] .review-success {
+  color: #9ed2ac;
+}
+
+html[data-theme='dark'] .review-rating-picker button:not(.active) {
+  color: #75656f;
+}
+
+html[data-theme='dark'] .product-review-form textarea {
+  border-color: #51454e;
+  background: #19161b;
+  color: #f0e8ec;
+}
+
+html[data-theme='dark'] .review-media-input::file-selector-button {
+  border-color: #745260;
+  background: #49313c;
+  color: #f4e8ed;
+}
+
+html[data-theme='dark'] .product-review-form .profile-form-error {
+  border-color: #71454a;
+  background: #3b2529;
+  color: #f1c0bd;
+}
+
 html[data-theme='dark'] .category-tab:not(.active) .category-tab-count {
   color: #b9abb2;
 }

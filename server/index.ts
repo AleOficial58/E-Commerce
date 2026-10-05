@@ -407,12 +407,15 @@ async function destroyCloudinaryAsset(
 async function cleanupAbandonedReviewUploads() {
   const cutoff = Timestamp.fromMillis(Date.now() - reviewMediaLimits.uploadLifetimeMs)
   const collection = firestore.collection('productReviewMedia')
-  const snapshot = await collection
+  const uploadingSnapshot = await collection
     .where('status', '==', 'uploading')
-    .where('createdAt', '<', cutoff)
     .limit(100)
     .get()
-  await Promise.all(snapshot.docs.map(async (document) => {
+  const abandonedUploads = uploadingSnapshot.docs.filter((document) => {
+    const createdAt = document.get('createdAt')
+    return createdAt instanceof Timestamp && createdAt.toMillis() < cutoff.toMillis()
+  })
+  await Promise.all(abandonedUploads.map(async (document) => {
     const publicId = document.get('publicId')
     const type = document.get('type')
     if (typeof publicId === 'string' && (type === 'image' || type === 'video')) {
@@ -1147,9 +1150,19 @@ function handleError(error: unknown, _request: Request, response: Response, _nex
   }
 
   if (code === '9' || code === 'failed-precondition') {
-    console.error('Firestore rechazó la operación por una condición pendiente.', code)
+    const message = error instanceof Error ? error.message : ''
+    console.error('Firestore rechazó la operación por una condición pendiente.', {
+      code,
+      message: message || 'Error sin detalle.',
+    })
+    if (/requires an index|needs an index|create it here/i.test(message)) {
+      response.status(503).json({
+        error: 'Firestore necesita un índice para esta consulta. Publicá la configuración con `firebase deploy --only firestore` y volvé a intentar.',
+      })
+      return
+    }
     response.status(503).json({
-      error: 'Firestore requiere un índice o una condición que todavía no está lista. Publicá la configuración con `firebase deploy --only firestore` y volvé a intentar.',
+      error: 'Firestore no pudo completar esta operación por una condición pendiente. Revisá los registros del servidor para conocer el detalle e intentá de nuevo.',
     })
     return
   }
