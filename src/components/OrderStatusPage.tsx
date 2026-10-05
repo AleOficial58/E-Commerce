@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { User } from 'firebase/auth'
-import type { CustomerOrderStatus } from '../lib/commerceApi'
+import type { CustomerOrderStatus, OrderMessage } from '../lib/commerceApi'
 import { OrderMessages } from './OrderMessages'
 
 type PaymentReturnStatus = 'checking' | 'approved' | 'pending' | 'failed' | 'review' | 'error'
@@ -17,6 +17,7 @@ type Props = {
   detailMode?: boolean
   money: Intl.NumberFormat
   onCancel?: () => Promise<{ message: string }>
+  onIncomingChatMessage?: (orderId: string, message: OrderMessage) => void
 }
 
 const localShipmentSteps = [
@@ -89,6 +90,7 @@ export function OrderStatusPage({
   detailMode = false,
   money,
   onCancel,
+  onIncomingChatMessage,
 }: Props) {
   const [messagePrompt, setMessagePrompt] = useState('')
   const [cancelLoading, setCancelLoading] = useState(false)
@@ -353,6 +355,7 @@ export function OrderStatusPage({
                 user={user}
                 orderId={orderId}
                 initialMessage={messagePrompt}
+                onIncomingMessage={onIncomingChatMessage}
               />
             )}
           </div>

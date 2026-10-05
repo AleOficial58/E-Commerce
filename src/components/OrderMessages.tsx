@@ -7,9 +7,16 @@ type Props = {
   orderId: string
   isAdmin?: boolean
   initialMessage?: string
+  onIncomingMessage?: (orderId: string, message: OrderMessage) => void
 }
 
-export function OrderMessages({ user, orderId, isAdmin = false, initialMessage = '' }: Props) {
+export function OrderMessages({
+  user,
+  orderId,
+  isAdmin = false,
+  initialMessage = '',
+  onIncomingMessage,
+}: Props) {
   const [messages, setMessages] = useState<OrderMessage[]>([])
   const [draft, setDraft] = useState(initialMessage)
   const [loading, setLoading] = useState(true)
@@ -21,10 +28,27 @@ export function OrderMessages({ user, orderId, isAdmin = false, initialMessage =
   useEffect(() => {
     let active = true
     let timeout: number | undefined
+    let initialized = false
+    const knownMessageIds = new Set<string>()
     const refresh = async () => {
       try {
         const nextMessages = await loadOrderMessages(user, orderId)
         if (!active) return
+        if (initialized) {
+          for (const message of nextMessages) {
+            if (!knownMessageIds.has(message.id) && message.authorRole === 'admin' && !isAdmin) {
+              onIncomingMessage?.(orderId, message)
+            }
+          }
+        } else {
+          initialized = true
+        }
+        nextMessages.forEach((message) => knownMessageIds.add(message.id))
+        if (knownMessageIds.size > 300) {
+          const currentIds = new Set(nextMessages.map((message) => message.id))
+          knownMessageIds.clear()
+          currentIds.forEach((id) => knownMessageIds.add(id))
+        }
         setMessages(nextMessages)
         setError('')
         setLoading(false)
@@ -41,7 +65,7 @@ export function OrderMessages({ user, orderId, isAdmin = false, initialMessage =
       active = false
       if (timeout !== undefined) window.clearTimeout(timeout)
     }
-  }, [orderId, user])
+  }, [isAdmin, onIncomingMessage, orderId, user])
 
   useEffect(() => {
     if (shouldFollowMessages.current && listRef.current) {

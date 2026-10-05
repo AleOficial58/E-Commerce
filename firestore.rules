@@ -17,6 +17,11 @@ service cloud.firestore {
         || (data[field] is string && data[field].size() <= maxLength);
     }
 
+    function validOptionalList(data, field, maxSize) {
+      return !data.keys().hasAny([field])
+        || (data[field] is list && data[field].size() <= maxSize);
+    }
+
     function validProfile(data) {
       return data.keys().hasOnly([
           'name',
@@ -53,7 +58,10 @@ service cloud.firestore {
           'rating',
           'badge',
           'image',
+          'images',
           'imageTone',
+          'characteristics',
+          'specifications',
           'stock',
           'active',
           'createdAt',
@@ -65,7 +73,7 @@ service cloud.firestore {
         && data.name.size() <= 100
         && data.category in ['Accesorios', 'Bijou', 'Bolsos', 'Cabello']
         && data.description is string
-        && data.description.size() <= 500
+        && data.description.size() <= 5000
         && data.price is number
         && data.price > 0
         && data.price <= 1000000000
@@ -77,6 +85,9 @@ service cloud.firestore {
           || (data.badge is string && data.badge.size() <= 40))
         && data.image is string
         && data.image.matches('https://.*')
+        && validOptionalList(data, 'images', 7)
+        && validOptionalList(data, 'characteristics', 30)
+        && validOptionalList(data, 'specifications', 30)
         && data.imageTone in ['peach', 'lavender', 'butter', 'mint']
         && data.stock is int
         && data.stock >= 0
@@ -131,7 +142,10 @@ service cloud.firestore {
           'rating',
           'badge',
           'image',
+          'images',
           'imageTone',
+          'characteristics',
+          'specifications',
           'stock',
           'active',
           'updatedAt'

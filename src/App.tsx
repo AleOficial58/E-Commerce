@@ -13,7 +13,7 @@ import {
   requestPasswordResetEmail,
   requestVerificationEmail,
 } from './lib/emailApi'
-import { products, type Product } from './data/products'
+import { products, type Product, type ProductAttribute } from './data/products'
 import {
   checkAdminAccess,
   cancelCustomerOrder,
@@ -35,8 +35,13 @@ import {
 } from './lib/commerceApi'
 import {
   loadProductReviews,
+  loadPendingReviewMedia,
   loadReviewSummaries,
+  moderatePendingReviewMedia,
   saveProductReview,
+  uploadProductReviewMedia,
+  type PendingReviewMedia,
+  type ReviewMedia,
   type ProductReviewsResult,
   type ReviewSummary,
 } from './lib/reviewsApi'
@@ -44,6 +49,8 @@ import { AuthActionPage } from './components/AuthActionPage'
 import { CustomerOrdersPage } from './components/CustomerOrdersPage'
 import { OrderStatusPage } from './components/OrderStatusPage'
 import { OrderMessages } from './components/OrderMessages'
+import { NotificationCenter } from './components/NotificationCenter'
+import { useNotificationStore } from './lib/notificationStore'
 import 'sweetalert2/dist/sweetalert2.min.css'
 import './App.css'
 
@@ -114,6 +121,34 @@ const money = new Intl.NumberFormat('es-AR', {
   currency: 'ARS',
   maximumFractionDigits: 0,
 })
+
+function getOrderStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    new: 'Compra confirmada',
+    preparing: 'En preparación',
+    shipped: 'En camino',
+    delivered: 'Entregada',
+    payment_review: 'Pago en revisión',
+    payment_failed: 'Pago no completado',
+    payment_expired: 'Pago vencido',
+    cancellation_refund_pending: 'Reembolso en proceso',
+    cancelled: 'Compra cancelada',
+  }
+  return labels[status] ?? 'Estado actualizado'
+}
+
+function getShipmentStageLabel(stage: string): string {
+  const labels: Record<string, string> = {
+    preparing: 'En preparación',
+    international_transit: 'En camino desde el exterior',
+    customs: 'En aduana',
+    in_argentina: 'En Argentina',
+    local_transit: 'En camino a tu domicilio',
+    out_for_delivery: 'En reparto',
+    delivered: 'Entregada',
+  }
+  return labels[stage] ?? 'Tu envío tiene una novedad'
+}
 
 const heroSlides = [
   {
@@ -235,6 +270,9 @@ type AdminProductDraft = {
   price: string
   stock: string
   image: string
+  galleryImages: string
+  characteristics: ProductAttribute[]
+  specifications: ProductAttribute[]
 }
 
 const emptyAdminProductDraft: AdminProductDraft = {
@@ -245,6 +283,33 @@ const emptyAdminProductDraft: AdminProductDraft = {
   price: '',
   stock: '10',
   image: '',
+  galleryImages: '',
+  characteristics: [],
+  specifications: [],
+}
+
+function readProductAttributes(value: unknown): ProductAttribute[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    if (
+      typeof item !== 'object' ||
+      item === null ||
+      !('label' in item) ||
+      !('value' in item) ||
+      typeof item.label !== 'string' ||
+      typeof item.value !== 'string' ||
+      !item.label.trim() ||
+      !item.value.trim() ||
+      item.label.length > 60 ||
+      item.value.length > 300
+    ) return []
+    return [{ label: item.label, value: item.value }]
+  }).slice(0, 30)
+}
+
+function getProductRouteId(): string {
+  const match = window.location.pathname.match(/^\/producto\/([^/]+)\/?$/)
+  return match?.[1] ?? ''
 }
 
 function readPublishedProduct(id: string, data: Record<string, unknown>): Product | null {
@@ -271,7 +336,14 @@ function readPublishedProduct(id: string, data: Record<string, unknown>): Produc
     description: data.description,
     price: data.price,
     image: data.image,
+    images: Array.isArray(data.images)
+      ? [data.image, ...data.images.filter((image): image is string =>
+        typeof image === 'string' && image.startsWith('https://') && image.length <= 2048,
+      )].slice(0, 8)
+      : [data.image],
     imageTone,
+    characteristics: readProductAttributes(data.characteristics),
+    specifications: readProductAttributes(data.specifications),
     ...(typeof data.originalPrice === 'number' ? { originalPrice: data.originalPrice } : {}),
     ...(typeof data.badge === 'string' ? { badge: data.badge } : {}),
     stock: typeof data.stock === 'number' ? data.stock : 50,
@@ -287,25 +359,39 @@ function formatReviewDate(value: string | null): string {
     : date.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
-type ProductReviewsDialogProps = {
+type ProductDetailPageProps = {
   product: Product
   summary: ReviewSummary
   user: User | null
   emailVerified: boolean
+  disabled: boolean
+  cartQuantity: number
+  cartCount: number
   onClose: () => void
+  onOpenCart: () => void
+  onAdd: (product: Product, quantity: number) => boolean
   onLogin: () => void
   onSummaryChange: (productId: string, summary: ReviewSummary) => void
+  relatedProducts: Product[]
+  onOpenProduct: (product: Product) => void
 }
 
-function ProductReviewsDialog({
+function ProductDetailPage({
   product,
   summary,
   user,
   emailVerified,
+  disabled,
+  cartQuantity,
+  cartCount,
   onClose,
+  onOpenCart,
+  onAdd,
   onLogin,
   onSummaryChange,
-}: ProductReviewsDialogProps) {
+  relatedProducts,
+  onOpenProduct,
+}: ProductDetailPageProps) {
   const [reviewResult, setReviewResult] = useState<{
     viewerKey: string
     data: ProductReviewsResult
@@ -313,12 +399,41 @@ function ProductReviewsDialog({
   const [rating, setRating] = useState(5)
   const [comment, setComment] = useState('')
   const [saving, setSaving] = useState(false)
+  const [mediaFiles, setMediaFiles] = useState<File[]>([])
   const [error, setError] = useState('')
   const [loadErrorViewerKey, setLoadErrorViewerKey] = useState('')
   const [notice, setNotice] = useState('')
+  const [purchaseNotice, setPurchaseNotice] = useState('')
+  const [selectedImage, setSelectedImage] = useState(0)
+  const [quantity, setQuantity] = useState(1)
   const viewerKey = user?.uid ?? 'guest'
   const reviewData = reviewResult?.viewerKey === viewerKey ? reviewResult.data : null
   const isLoading = reviewData === null && loadErrorViewerKey !== viewerKey
+
+  function handleReviewMediaSelection(files: FileList | null) {
+    if (!files) return
+    const nextFiles = [...mediaFiles, ...Array.from(files)]
+    const existingMedia = reviewData?.ownReview?.media ?? []
+    const imageCount =
+      existingMedia.filter((item) => item.type === 'image').length +
+      nextFiles.filter((file) => file.type.startsWith('image/')).length
+    const videoCount =
+      existingMedia.filter((item) => item.type === 'video').length +
+      nextFiles.filter((file) => file.type.startsWith('video/')).length
+    const invalidFile = nextFiles.find((file) =>
+      (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) && file.type !== 'video/mp4') ||
+      file.size < 1 ||
+      file.size > (file.type === 'video/mp4' ? 25 : 8) * 1024 * 1024,
+    )
+    if (invalidFile) {
+      setError(`${invalidFile.name}: usá JPEG, PNG o WebP de hasta 8 MB, o MP4 de hasta 25 MB.`)
+    } else if (nextFiles.length + existingMedia.length > 5 || imageCount > 4 || videoCount > 1) {
+      setError('Cada opinión admite hasta 4 imágenes y 1 video.')
+    } else {
+      setError('')
+      setMediaFiles(nextFiles)
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -328,7 +443,7 @@ function ProductReviewsDialog({
         setReviewResult({ viewerKey, data })
         setRating(data.ownReview?.rating ?? 5)
         setComment(data.ownReview?.comment ?? '')
-        setError('')
+        setError(data.mediaError ?? '')
         setLoadErrorViewerKey('')
         onSummaryChange(product.id, data.summary)
       })
@@ -359,6 +474,18 @@ function ProductReviewsDialog({
     setNotice('')
     try {
       const result = await saveProductReview(user, product.id, rating, comment)
+      const uploadedMedia: ReviewMedia[] = []
+      const failedMedia: File[] = []
+      const mediaErrors: string[] = []
+      for (const file of mediaFiles) {
+        try {
+          uploadedMedia.push(await uploadProductReviewMedia(user, product.id, file))
+        } catch (uploadError) {
+          failedMedia.push(file)
+          mediaErrors.push(`${file.name}: ${uploadError instanceof Error ? uploadError.message : 'No se pudo subir.'}`)
+        }
+      }
+      setMediaFiles(failedMedia)
       const normalizedComment = comment.trim().replace(/\s+/g, ' ')
       const now = new Date().toISOString()
       const updatedReview = {
@@ -368,6 +495,7 @@ function ProductReviewsDialog({
         editedAt: reviewData?.ownReview ? now : null,
         verifiedPurchase: true,
         mine: true,
+        media: [...(reviewData?.ownReview?.media ?? []), ...uploadedMedia],
       }
       const updatedReviews: ProductReviewsResult = {
         reviews: [
@@ -382,7 +510,14 @@ function ProductReviewsDialog({
       setLoadErrorViewerKey('')
       setComment(normalizedComment)
       onSummaryChange(product.id, result.summary)
-      setNotice(result.message)
+      if (mediaErrors.length) {
+        setError(mediaErrors.join(' '))
+        setNotice(`${result.message} Los archivos que se pudieron cargar quedaron pendientes de aprobación.`)
+      } else if (uploadedMedia.length) {
+        setNotice(`${result.message} Las fotos y el video quedaron pendientes de aprobación.`)
+      } else {
+        setNotice(result.message)
+      }
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'No pudimos guardar tu opinión.')
     } finally {
@@ -390,47 +525,156 @@ function ProductReviewsDialog({
     }
   }
 
+  const galleryImages = product.images?.length ? product.images : [product.image]
+  const stock = product.stock ?? 50
+  const maxAvailable = Math.max(0, stock - cartQuantity)
+  const selectedQuantity = Math.min(quantity, Math.max(1, maxAvailable))
+
   return (
-    <div className="product-reviews-backdrop" onMouseDown={(event) => {
-      if (event.target === event.currentTarget && !saving) onClose()
-    }}>
-      <section
-        className="product-reviews-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="product-reviews-title"
-        onKeyDown={(event) => {
-          if (event.key === 'Escape' && !saving) onClose()
-        }}
-      >
-        <header className="product-reviews-header">
-          <div>
-            <span className="eyebrow section-eyebrow">DETALLE DEL PRODUCTO</span>
-            <h2 id="product-reviews-title">{product.name}</h2>
-            <p>{product.description}</p>
-          </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar opiniones" disabled={saving}>
-            <Icon name="close" />
-          </button>
-        </header>
+    <main className="product-detail-page">
+      <header className="product-detail-topbar">
+        <button className="product-detail-back" type="button" onClick={onClose}>
+          <Icon name="arrow" size={16} /> Volver a la tienda
+        </button>
+        <a className="wordmark product-detail-wordmark" href="/" aria-label="Lúmina, inicio">lúmina<span className="wordmark-star">✳</span></a>
+        <button className="product-detail-cart-link" type="button" onClick={onOpenCart} aria-label={cartCount ? `Tu bolso, ${cartCount} unidades` : 'Tu bolso vacío'}>
+          <Icon name="bag" size={16} /> Tu bolso <span>{cartCount || ''}</span>
+        </button>
+      </header>
 
-        <div className="product-reviews-overview">
-          <img src={product.image} alt={product.name} />
-          <div className="product-review-score">
-            <strong>{summary.reviewCount ? summary.ratingAverage.toFixed(1) : '—'}</strong>
-            <span className="review-stars" aria-label={summary.reviewCount ? `${summary.ratingAverage.toFixed(1)} de 5 estrellas` : 'Sin puntuaciones'}>
-              {summary.reviewCount ? '★★★★★' : '☆☆☆☆☆'}
-            </span>
-            <small>{summary.reviewCount} {summary.reviewCount === 1 ? 'opinión verificada' : 'opiniones verificadas'}</small>
-            <span className="review-verification-note"><Icon name="check" size={14} /> Solo compras aprobadas</span>
-          </div>
-          <div className="product-review-price">
-            <span>Precio publicado</span>
-            <strong>{money.format(product.price)}</strong>
-            <span>Stock informado: {product.stock ?? 'consultar'}</span>
-          </div>
-        </div>
+      <div className="product-detail-container">
+        <nav className="product-breadcrumbs" aria-label="Ruta de navegación">
+          <a href="/">Inicio</a><span>/</span><a href="/#productos">Productos</a><span>/</span><a href={`/#productos`}>{product.category}</a><span>/</span><strong>{product.name}</strong>
+        </nav>
 
+        <section className="product-detail-hero" aria-labelledby="product-reviews-title">
+          <div className="product-detail-gallery">
+            <div className={`product-detail-main-image image-${product.imageTone}`}>
+              <img src={galleryImages[selectedImage] ?? product.image} alt={product.name} />
+              {product.badge && <span className="product-badge">{product.badge === 'Más elegido' ? 'Selección Lúmina' : product.badge}</span>}
+            </div>
+            {galleryImages.length > 1 && (
+              <div className="product-detail-thumbnails" aria-label="Imágenes del producto">
+                {galleryImages.map((image, index) => (
+                  <button
+                    key={image}
+                    type="button"
+                    className={selectedImage === index ? 'is-selected' : ''}
+                    aria-label={`Ver imagen ${index + 1} de ${galleryImages.length}`}
+                    aria-pressed={selectedImage === index}
+                    onClick={() => setSelectedImage(index)}
+                  >
+                    <img src={image} alt="" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="product-detail-summary">
+            <span className="eyebrow section-eyebrow">{product.category}</span>
+            <h1 id="product-reviews-title">{product.name}</h1>
+            <a className="product-detail-rating" href="#opiniones">
+              <span className="review-stars">{summary.reviewCount ? '★★★★★' : '☆☆☆☆☆'}</span>
+              <strong>{summary.reviewCount ? summary.ratingAverage.toFixed(1) : 'Sin calificaciones'}</strong>
+              {summary.reviewCount > 0 && <span>({summary.reviewCount} opiniones verificadas)</span>}
+            </a>
+
+            <div className="product-detail-price">
+              <strong>{money.format(product.price)}</strong>
+              {product.originalPrice && <del>{money.format(product.originalPrice)}</del>}
+              <span>Precio publicado</span>
+            </div>
+            <p className={`product-stock-state ${stock > 0 ? 'is-available' : 'is-unavailable'}`}>
+              <span aria-hidden="true" />{maxAvailable > 0 ? `Disponible · ${maxAvailable} ${maxAvailable === 1 ? 'unidad' : 'unidades'} para agregar` : 'Sin stock disponible'}
+            </p>
+
+            <div className="product-detail-purchase">
+              <label htmlFor="product-quantity">Cantidad</label>
+              <div className="quantity-control">
+                <button type="button" aria-label="Quitar una unidad" onClick={() => setQuantity((current) => Math.max(1, current - 1))} disabled={selectedQuantity <= 1}><Icon name="minus" size={15} /></button>
+                <input id="product-quantity" type="number" min="1" max={maxAvailable} value={selectedQuantity} onChange={(event) => setQuantity(Math.min(maxAvailable || 1, Math.max(1, Number(event.target.value) || 1)))} />
+                <button type="button" aria-label="Agregar una unidad" onClick={() => setQuantity((current) => Math.min(maxAvailable, current + 1))} disabled={selectedQuantity >= maxAvailable}><Icon name="plus" size={15} /></button>
+              </div>
+              <button className="button button-dark product-detail-add" type="button" disabled={disabled || maxAvailable < 1} onClick={() => {
+                if (onAdd(product, selectedQuantity)) setPurchaseNotice('Se agregó al bolso. Podés seguir explorando o revisar tu selección.')
+                else setPurchaseNotice('No pudimos agregar esa cantidad. Revisá el stock disponible.')
+              }}>
+                Agregar al bolso <Icon name="bag" size={17} />
+              </button>
+            </div>
+            {purchaseNotice && <p className="product-purchase-notice" role="status">{purchaseNotice}</p>}
+
+            <div className="product-detail-trust">
+              <p><Icon name="check" size={15} /><span><strong>Pago en Mercado Pago</strong><small>Mercado Pago procesa el pago de tu compra.</small></span></p>
+              <p><Icon name="box" size={15} /><span><strong>Envío</strong><small>El costo y las opciones se muestran al continuar con la compra.</small></span></p>
+            </div>
+
+            <a className="product-seller-card" href="#vendedor">
+              <span className="product-seller-mark">✳</span>
+              <span><small>VENDIDO POR</small><strong>Lúmina</strong><em>Tienda oficial</em></span>
+              <Icon name="arrow" size={16} />
+            </a>
+          </div>
+        </section>
+
+        <nav className="product-detail-section-nav" aria-label="Secciones del producto">
+          <a href="#descripcion">Descripción</a>
+          {product.characteristics?.length ? <a href="#caracteristicas">Características</a> : null}
+          {product.specifications?.length ? <a href="#especificaciones">Especificaciones</a> : null}
+          <a href="#opiniones">Opiniones</a>
+        </nav>
+
+        <section className="product-detail-information">
+          <div className="product-detail-main-column">
+            <section className="product-detail-section" id="descripcion">
+              <span className="eyebrow section-eyebrow">CONOCÉ LOS DETALLES</span>
+              <h2>Descripción</h2>
+              <p className="product-detail-description">{product.description}</p>
+            </section>
+
+            {!!product.characteristics?.length && (
+              <section className="product-detail-section" id="caracteristicas">
+                <span className="eyebrow section-eyebrow">LO QUE OFRECE</span>
+                <h2>Características del producto</h2>
+                <dl className="product-attribute-list">
+                  {product.characteristics.map((attribute, index) => <div key={`${attribute.label}-${index}`}><dt>{attribute.label}</dt><dd>{attribute.value}</dd></div>)}
+                </dl>
+              </section>
+            )}
+
+            {!!product.specifications?.length && (
+              <section className="product-detail-section" id="especificaciones">
+                <span className="eyebrow section-eyebrow">INFORMACIÓN TÉCNICA</span>
+                <h2>Especificaciones</h2>
+                <dl className="product-attribute-list">
+                  {product.specifications.map((attribute, index) => <div key={`${attribute.label}-${index}`}><dt>{attribute.label}</dt><dd>{attribute.value}</dd></div>)}
+                </dl>
+              </section>
+            )}
+
+            <section className="product-detail-section product-detail-seller" id="vendedor">
+              <span className="eyebrow section-eyebrow">TU TIENDA DE CONFIANZA</span>
+              <h2>Vendido por Lúmina</h2>
+              <p>Somos una tienda. Consultá las características publicadas y el detalle de tu compra antes de pagar; los productos, precios y disponibilidad se muestran según el catálogo vigente.</p>
+            </section>
+          </div>
+
+          <aside className="product-detail-aside">
+            <div className="product-detail-payment-card">
+              <span className="eyebrow section-eyebrow">MEDIOS DE PAGO</span>
+              <h3>Pagá en Mercado Pago</h3>
+              <p>El pago se realiza en Mercado Pago. Los medios y cuotas disponibles dependen de las opciones que Mercado Pago muestre para tu compra.</p>
+            </div>
+          </aside>
+        </section>
+
+        <section className="product-page-reviews" id="opiniones" aria-labelledby="product-review-list-title">
+          <div className="product-page-reviews-heading">
+            <span className="eyebrow section-eyebrow">EXPERIENCIAS REALES</span>
+            <h2>Opiniones de compradores</h2>
+            <p>Opiniones habilitadas para clientes con una compra aprobada de este producto.</p>
+          </div>
         <div className="product-reviews-content">
           <section className="product-review-list" aria-labelledby="product-review-list-title">
             <h3 id="product-review-list-title">Opiniones de compradores</h3>
@@ -449,12 +693,24 @@ function ProductReviewsDialog({
                   </div>
                   <strong>{review.mine ? 'Tu opinión' : 'Comprador verificado'}</strong>
                   <p>{review.comment}</p>
+                  {!!review.media?.some((media) => media.status === 'approved') && (
+                    <div className="review-media-gallery">
+                      {review.media.filter((media) => media.status === 'approved').map((media) => media.type === 'video' ? (
+                        <video key={media.id} src={media.url} controls preload="metadata" aria-label="Video de la opinión" />
+                      ) : (
+                        <a key={media.id} href={media.url} target="_blank" rel="noreferrer">
+                          <img src={media.url} alt="Foto adjunta a una opinión verificada" loading="lazy" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
                   <span className="review-verified-label"><Icon name="check" size={13} /> Compra verificada{review.editedAt ? ' · editada' : ''}</span>
                 </article>
               ))
             ) : (
               <p className="review-empty">Todavía no hay opiniones. La primera reseña aparecerá después de una compra verificada.</p>
             )}
+            {reviewData?.mediaError && <p className="profile-form-error" role="alert">{reviewData.mediaError}</p>}
           </section>
 
           <section className="product-review-form-section" aria-labelledby="product-review-form-title">
@@ -497,6 +753,47 @@ function ProductReviewsDialog({
                     required
                   />
                   <span className="review-character-count">{comment.length}/1000</span>
+                  <label className="review-media-label" htmlFor="product-review-media">Fotos o video (opcional)</label>
+                  <input
+                    id="product-review-media"
+                    className="review-media-input"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,video/mp4"
+                    multiple
+                    disabled={saving || isLoading}
+                    onChange={(event) => {
+                      handleReviewMediaSelection(event.currentTarget.files)
+                      event.currentTarget.value = ''
+                    }}
+                  />
+                  <small>Hasta 4 imágenes (8 MB c/u) y 1 video MP4 (25 MB). El equipo revisará los archivos antes de publicarlos.</small>
+                  {!!mediaFiles.length && (
+                    <ul className="review-selected-media">
+                      {mediaFiles.map((file, index) => (
+                        <li key={`${file.name}-${file.lastModified}-${index}`}>
+                          <span>{file.name} · {(file.size / (1024 * 1024)).toFixed(1)} MB</span>
+                          <button type="button" onClick={() => setMediaFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} disabled={saving}>Quitar</button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {!!reviewData?.ownReview?.media.length && (
+                    <div className="review-own-media">
+                      <strong>Archivos de tu opinión</strong>
+                      <div className="review-media-gallery">
+                        {reviewData.ownReview.media.map((media) => (
+                          <div className="review-own-media-item" key={media.id}>
+                            {media.status === 'approved'
+                              ? media.type === 'video'
+                                ? <video src={media.url} controls preload="metadata" aria-label="Tu video adjunto" />
+                                : <img src={media.url} alt="Tu foto adjunta" loading="lazy" />
+                              : <small>Vista previa privada · pendiente de revisión</small>}
+                            {media.status === 'approved' && <small>Publicado</small>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {error && <p className="profile-form-error" role="alert">{error}</p>}
                   {notice && <p className="review-success" role="status">{notice}</p>}
                   <button className="button button-dark profile-save-button" type="submit" disabled={saving || isLoading}>
@@ -513,8 +810,25 @@ function ProductReviewsDialog({
             )}
           </section>
         </div>
-      </section>
-    </div>
+        </section>
+        {relatedProducts.length > 0 && (
+          <section className="product-related-section" aria-labelledby="product-related-title">
+            <span className="eyebrow section-eyebrow">SEGUÍ EXPLORANDO</span>
+            <h2 id="product-related-title">También puede gustarte</h2>
+            <div className="product-related-grid">
+              {relatedProducts.slice(0, 4).map((relatedProduct) => (
+                <button className="product-related-card" type="button" key={relatedProduct.id} onClick={() => onOpenProduct(relatedProduct)}>
+                  <img src={relatedProduct.image} alt="" loading="lazy" />
+                  <span>{relatedProduct.name}</span>
+                  <strong>{money.format(relatedProduct.price)}</strong>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+      <footer className="product-detail-footer"><a className="wordmark" href="/">lúmina<span className="wordmark-star">✳</span></a><span>Un detalle, todo tu estilo.</span><a href="/">Volver a la tienda</a></footer>
+    </main>
   )
 }
 
@@ -640,7 +954,7 @@ function Storefront() {
   const [catalog, setCatalog] = useState<Product[]>(products)
   const [reviewSummaries, setReviewSummaries] = useState<Record<string, ReviewSummary>>({})
   const [reviewSummaryError, setReviewSummaryError] = useState('')
-  const [productDetailsProduct, setProductDetailsProduct] = useState<Product | null>(null)
+  const [productRouteId, setProductRouteId] = useState(getProductRouteId)
   const [cartOpen, setCartOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [checkoutBusy, setCheckoutBusy] = useState(false)
@@ -674,9 +988,16 @@ function Storefront() {
   const [adminAccessStatus, setAdminAccessStatus] = useState<'checking' | 'admin' | 'not-admin' | 'error'>('checking')
   const [adminAccessError, setAdminAccessError] = useState('')
   const [adminOpen, setAdminOpen] = useState(false)
-  const [adminTab, setAdminTab] = useState<'orders' | 'products' | 'access'>('orders')
+  const [adminTab, setAdminTab] = useState<'orders' | 'products' | 'reviews' | 'access'>('orders')
   const [adminOrders, setAdminOrders] = useState<AdminOrder[]>([])
   const [adminLoading, setAdminLoading] = useState(false)
+  const [pendingReviewMedia, setPendingReviewMedia] = useState<PendingReviewMedia[]>([])
+  const [adminReviewMediaLoading, setAdminReviewMediaLoading] = useState(false)
+  const [adminReviewMediaBusy, setAdminReviewMediaBusy] = useState('')
+  const [adminReviewMediaRefresh, setAdminReviewMediaRefresh] = useState(0)
+  const [adminReviewMediaCursor, setAdminReviewMediaCursor] = useState('')
+  const [pendingReviewMediaNextCursor, setPendingReviewMediaNextCursor] = useState<string | null>(null)
+  const [pendingReviewMediaHasMore, setPendingReviewMediaHasMore] = useState(false)
   const [adminShipmentBusy, setAdminShipmentBusy] = useState('')
   const [adminMessageThreads, setAdminMessageThreads] = useState<Record<string, boolean>>({})
   const [adminError, setAdminError] = useState('')
@@ -706,8 +1027,94 @@ function Storefront() {
   const saveQueue = useRef<Promise<void>>(Promise.resolve())
   const knownAdminOrderIds = useRef<Set<string> | null>(null)
   const clearedPaymentOrderIds = useRef<Set<string>>(new Set())
+  const orderSnapshots = useRef(new Map<string, {
+    status: string
+    paymentStatus: string
+    shipmentStage?: string | null
+  }>())
+  const notificationStore = useNotificationStore(user?.uid ?? null)
+  const { addNotification } = notificationStore
   const hasBlockingOverlay = authOpen || accountOpen || cartOpen || checkoutOpen ||
-    profileEditorOpen || adminOpen || productDetailsProduct !== null
+    profileEditorOpen || adminOpen
+
+  useEffect(() => {
+    orderSnapshots.current.clear()
+  }, [user?.uid])
+
+  const observeOrder = useCallback((order: {
+    id: string
+    status: string
+    paymentStatus: string
+    shipmentStage?: string | null
+    shipmentStageDetail?: string | null
+  }) => {
+    const previous = orderSnapshots.current.get(order.id)
+    if (previous) {
+      const statusChanged = previous.status !== order.status
+      const paymentChanged = previous.paymentStatus !== order.paymentStatus
+      if (statusChanged || paymentChanged) {
+        const changes: string[] = []
+        if (statusChanged) changes.push(getOrderStatusLabel(order.status))
+        if (paymentChanged) {
+          changes.push(order.paymentStatus === 'approved'
+            ? 'Pago acreditado'
+            : order.paymentStatus === 'refunded'
+              ? 'Pago reembolsado'
+              : order.paymentStatus === 'pending'
+                ? 'Pago pendiente'
+                : 'Estado de pago actualizado')
+        }
+        addNotification({
+          id: `order-update:${order.id}:${order.status}:${order.paymentStatus}`,
+          kind: 'order',
+          title: 'Actualización de tu compra',
+          message: `Pedido ${order.id.slice(0, 8).toLocaleUpperCase('es-AR')} · ${changes.join(' · ')}.`,
+          createdAt: new Date().toISOString(),
+          orderId: order.id,
+        })
+      }
+      if (
+        order.shipmentStage !== undefined &&
+        previous.shipmentStage !== undefined &&
+        previous.shipmentStage !== order.shipmentStage
+      ) {
+        addNotification({
+          id: `shipment-update:${order.id}:${order.shipmentStage ?? 'sin-etapa'}`,
+          kind: 'order',
+          title: 'Novedad en tu envío',
+          message: order.shipmentStageDetail || getShipmentStageLabel(order.shipmentStage ?? ''),
+          createdAt: new Date().toISOString(),
+          orderId: order.id,
+        })
+      }
+    }
+    orderSnapshots.current.set(order.id, {
+      status: order.status,
+      paymentStatus: order.paymentStatus,
+      ...(order.shipmentStage !== undefined
+        ? { shipmentStage: order.shipmentStage }
+        : previous?.shipmentStage !== undefined
+          ? { shipmentStage: previous.shipmentStage }
+          : {}),
+    })
+  }, [addNotification])
+
+  const handleIncomingChatMessage = useCallback((orderId: string, message: { id: string; createdAt: string | null }) => {
+    addNotification({
+      id: `chat-message:${orderId}:${message.id}`,
+      kind: 'message',
+      title: 'Nuevo mensaje en tu compra',
+      message: `El equipo de Lúmina te escribió en el chat del pedido ${orderId.slice(0, 8).toLocaleUpperCase('es-AR')}.`,
+      createdAt: message.createdAt ?? new Date().toISOString(),
+      orderId,
+    })
+  }, [addNotification])
+
+  useEffect(() => {
+    const syncProductRoute = () => setProductRouteId(getProductRouteId())
+    window.addEventListener('popstate', syncProductRoute)
+    return () => window.removeEventListener('popstate', syncProductRoute)
+  }, [])
 
   useEffect(() => {
     if (mobileSearchOpen) searchInputRef.current?.focus()
@@ -790,6 +1197,7 @@ function Storefront() {
 
     const handleOrderUpdate = (result: { order: CustomerOrderStatus }) => {
       if (!active) return
+      observeOrder(result.order)
       setPaymentReturnMessage('')
       const { paymentStatus, status } = result.order
       setPaymentReturnOrder(result.order)
@@ -840,7 +1248,7 @@ function Storefront() {
       active = false
       unsubscribe()
     }
-  }, [authLoading, paymentRefreshCount, paymentReturnOrderId, paymentReturnPaymentId, user])
+  }, [authLoading, observeOrder, paymentRefreshCount, paymentReturnOrderId, paymentReturnPaymentId, user])
 
   useEffect(() => {
     if (!customerOrdersPageOpen || !user) return
@@ -852,6 +1260,7 @@ function Storefront() {
       try {
         const orders = await loadCustomerOrders(user)
         if (!active) return
+        orders.forEach(observeOrder)
         setCustomerOrders(orders)
         setCustomerOrdersError('')
         setCustomerOrdersLoading(false)
@@ -871,7 +1280,7 @@ function Storefront() {
       active = false
       if (timeout !== undefined) window.clearTimeout(timeout)
     }
-  }, [customerOrdersPageOpen, customerOrdersRefresh, user])
+  }, [customerOrdersPageOpen, customerOrdersRefresh, observeOrder, user])
 
   useEffect(() => {
     if (!selectedCustomerOrderId || !user) return
@@ -882,6 +1291,7 @@ function Storefront() {
       try {
         const order = await loadCustomerOrder(user, selectedCustomerOrderId)
         if (!active) return
+        observeOrder(order)
         setSelectedCustomerOrder(order)
         setSelectedCustomerOrderMessage('')
         if (order.paymentStatus === 'approved') {
@@ -911,7 +1321,7 @@ function Storefront() {
       active = false
       if (timeout !== undefined) window.clearTimeout(timeout)
     }
-  }, [selectedCustomerOrderId, selectedCustomerOrderRefresh, user])
+  }, [observeOrder, selectedCustomerOrderId, selectedCustomerOrderRefresh, user])
 
   useEffect(() => {
     if (!hasBlockingOverlay) return
@@ -1096,6 +1506,30 @@ function Storefront() {
       window.clearInterval(interval)
     }
   }, [adminOpen, isAdmin, user])
+
+  useEffect(() => {
+    if (!adminOpen || !isAdmin || adminTab !== 'reviews' || !user) return
+    let active = true
+    void loadPendingReviewMedia(user, adminReviewMediaCursor)
+      .then((page) => {
+        if (!active) return
+        setPendingReviewMedia(page.media)
+        setPendingReviewMediaHasMore(page.hasMore)
+        setPendingReviewMediaNextCursor(page.nextCursor)
+        setAdminError('')
+      })
+      .catch((error: unknown) => {
+        if (!active) return
+        console.error('No se pudieron cargar los archivos pendientes de moderación.', error)
+        setAdminError(error instanceof Error ? error.message : 'No se pudieron cargar las opiniones pendientes.')
+      })
+      .finally(() => {
+        if (active) setAdminReviewMediaLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [adminOpen, adminReviewMediaCursor, adminReviewMediaRefresh, adminTab, isAdmin, user])
 
   useEffect(() => {
     if (!user || authLoading) return
@@ -1328,18 +1762,47 @@ function Storefront() {
     )
   }
 
-  function addToCart(product: Product) {
-    if (storeLoading || authLoading) return
-    setCart((current) => ({ ...current, [product.id]: (current[product.id] ?? 0) + 1 }))
-    setNotice(`${product.name} se sumó a tu bolso`)
+  function addToCart(product: Product, requestedQuantity = 1): boolean {
+    if (storeLoading || authLoading) return false
+    const stock = product.stock ?? 50
+    const available = Math.max(0, stock - (cart[product.id] ?? 0))
+    const quantity = Math.min(Math.max(1, requestedQuantity), available)
+    if (quantity < 1) {
+      setNotice(stock < 1 ? 'Este producto no tiene stock disponible.' : 'Ya agregaste todas las unidades disponibles.')
+      return false
+    }
+    setCart((current) => ({
+      ...current,
+      [product.id]: Math.min(stock, (current[product.id] ?? 0) + quantity),
+    }))
+    setNotice(`${quantity} ${quantity === 1 ? 'unidad' : 'unidades'} de ${product.name} se sumaron a tu bolso`)
+    return true
   }
 
   function openProductDetails(product: Product) {
-    setProductDetailsProduct(product)
+    if (getProductRouteId() !== product.id) {
+      window.history.pushState({ luminaProduct: true }, '', `/producto/${encodeURIComponent(product.id)}`)
+    }
+    setProductRouteId(product.id)
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  }
+
+  function closeProductDetails() {
+    if (window.history.state?.luminaProduct === true) {
+      window.history.back()
+      return
+    }
+    window.history.replaceState({}, '', '/')
+    setProductRouteId('')
+  }
+
+  function openProductCart() {
+    closeProductDetails()
+    setCartOpen(true)
   }
 
   function openLoginForReview() {
-    setProductDetailsProduct(null)
+    closeProductDetails()
     setAuthMode('login')
     setAuthError('')
     setAuthOpen(true)
@@ -1668,12 +2131,25 @@ function Storefront() {
     const category = String(formData.get('category') ?? '')
     const description = String(formData.get('description') ?? '').trim()
     const image = String(formData.get('image') ?? '').trim()
+    const images = adminProductDraft.galleryImages
+      .split(/\r?\n/)
+      .map((url) => url.trim())
+      .filter(Boolean)
     const price = Number(formData.get('price'))
     const stock = Number(formData.get('stock'))
+    const validAttributes = (attributes: ProductAttribute[]) =>
+      attributes.length <= 30 &&
+      attributes.every((attribute) =>
+        attribute.label.trim().length > 0 &&
+        attribute.label.length <= 60 &&
+        attribute.value.trim().length > 0 &&
+        attribute.value.length <= 300,
+      )
     if (
       !id ||
       !name ||
       !description ||
+      description.length > 5000 ||
       !['Accesorios', 'Bijou', 'Bolsos', 'Cabello'].includes(category) ||
       !Number.isFinite(price) ||
       !Number.isSafeInteger(price) ||
@@ -1682,9 +2158,14 @@ function Storefront() {
       !Number.isInteger(stock) ||
       stock < 0 ||
       stock > 1_000_000 ||
-      !image.startsWith('https://')
+      !image.startsWith('https://') ||
+      image.length > 2048 ||
+      images.length > 7 ||
+      images.some((url) => !url.startsWith('https://') || url.length > 2048) ||
+      !validAttributes(adminProductDraft.characteristics) ||
+      !validAttributes(adminProductDraft.specifications)
     ) {
-      setAdminError('Completá los campos correctamente. La imagen debe usar HTTPS; precio y stock deben estar dentro de los límites permitidos.')
+      setAdminError('Revisá los campos: imágenes HTTPS (hasta 8 en total), descripción de hasta 5000 caracteres y hasta 30 atributos por sección.')
       return
     }
 
@@ -1706,6 +2187,9 @@ function Storefront() {
         description,
         price,
         image,
+        images,
+        characteristics: adminProductDraft.characteristics,
+        specifications: adminProductDraft.specifications,
         imageTone,
         stock,
         active: true,
@@ -1732,6 +2216,46 @@ function Storefront() {
     }
   }
 
+  async function handleReviewMediaModeration(
+    mediaId: string,
+    action: 'approve' | 'reject',
+  ) {
+    if (!user || !isAdmin || adminReviewMediaBusy) return
+    if (action === 'reject') {
+      const confirmation = await Swal.fire({
+        title: '¿Rechazar este archivo?',
+        text: 'Se eliminará de forma permanente y no se mostrará en la opinión.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Rechazar y eliminar',
+        cancelButtonText: 'Volver',
+        reverseButtons: true,
+        customClass: {
+          popup: 'lumina-alert-popup',
+          title: 'lumina-alert-title',
+          htmlContainer: 'lumina-alert-text',
+          confirmButton: 'lumina-alert-confirm',
+          cancelButton: 'lumina-alert-cancel',
+          actions: 'lumina-alert-actions',
+        },
+        buttonsStyling: false,
+      })
+      if (!confirmation.isConfirmed) return
+    }
+    setAdminReviewMediaBusy(mediaId)
+    setAdminError('')
+    try {
+      const result = await moderatePendingReviewMedia(user, mediaId, action)
+      setPendingReviewMedia((current) => current.filter((media) => media.id !== mediaId))
+      setNotice(result.message)
+    } catch (error) {
+      console.error('No se pudo moderar el archivo de una opinión.', error)
+      setAdminError(error instanceof Error ? error.message : 'No se pudo moderar el archivo.')
+    } finally {
+      setAdminReviewMediaBusy('')
+    }
+  }
+
   function handleEditAdminProduct(product: Product) {
     setAdminEditingProductId(product.id)
     setAdminProductDraft({
@@ -1742,6 +2266,9 @@ function Storefront() {
       price: String(product.price),
       stock: String(product.stock ?? 50),
       image: product.image,
+      galleryImages: (product.images ?? []).filter((image) => image !== product.image).join('\n'),
+      characteristics: product.characteristics ?? [],
+      specifications: product.specifications ?? [],
     })
     setAdminTab('products')
   }
@@ -1897,6 +2424,10 @@ function Storefront() {
   async function openAdminPanel() {
     setAdminLoading(true)
     setAdminError('')
+    if (adminTab === 'reviews') {
+      setAdminReviewMediaLoading(true)
+      setAdminReviewMediaRefresh((current) => current + 1)
+    }
     setAdminOpen(true)
     try {
       await refreshCatalog()
@@ -2022,6 +2553,7 @@ function Storefront() {
           setSelectedCustomerOrderId('')
           setCustomerOrdersPageOpen(true)
         }}
+        onIncomingChatMessage={handleIncomingChatMessage}
         backLabel="Volver a mis compras"
         detailMode
         money={money}
@@ -2030,6 +2562,38 @@ function Storefront() {
           setCustomerOrdersRefresh((current) => current + 1)
           return result
         }}
+      />
+    )
+  }
+  if (productRouteId) {
+    const routeProduct = catalog.find((product) => product.id === productRouteId)
+    if (!routeProduct) {
+      return (
+        <main className="product-route-message">
+          <a className="wordmark" href="/">lúmina<span className="wordmark-star">✳</span></a>
+          <h1>No encontramos este producto</h1>
+          <p>Puede que ya no esté disponible o que el enlace no sea correcto.</p>
+          <button className="button button-dark" type="button" onClick={closeProductDetails}>Volver a la tienda</button>
+        </main>
+      )
+    }
+    return (
+      <ProductDetailPage
+        key={routeProduct.id}
+        product={routeProduct}
+        summary={reviewSummaries[routeProduct.id] ?? { ratingAverage: 0, reviewCount: 0 }}
+        user={user}
+        emailVerified={emailVerified}
+        disabled={storeLoading || authLoading}
+        cartQuantity={cart[routeProduct.id] ?? 0}
+        cartCount={cartCount}
+        onClose={closeProductDetails}
+        onOpenCart={openProductCart}
+        onAdd={addToCart}
+        onLogin={openLoginForReview}
+        onSummaryChange={handleReviewSummaryChange}
+        relatedProducts={catalog.filter((product) => product.id !== routeProduct.id && product.category === routeProduct.category && product.active !== false)}
+        onOpenProduct={openProductDetails}
       />
     )
   }
@@ -2116,6 +2680,22 @@ function Storefront() {
             />
             <kbd>⌘ K</kbd>
           </label>
+          <NotificationCenter
+            notifications={notificationStore.notifications}
+            loading={notificationStore.loading}
+            soundEnabled={notificationStore.soundEnabled}
+            onMarkRead={notificationStore.markRead}
+            onMarkAllRead={notificationStore.markAllRead}
+            onClear={notificationStore.clearNotifications}
+            onSoundChange={notificationStore.setSoundEnabled}
+            onOpenOrder={(orderId) => {
+              if (!user) return
+              setCustomerOrdersPageOpen(false)
+              setSelectedCustomerOrderId(orderId)
+              setSelectedCustomerOrderStatus('checking')
+              setSelectedCustomerOrderMessage('')
+            }}
+          />
           <button
             className="icon-button account-button"
             aria-label={authLoading ? 'Verificando sesión' : user ? 'Abrir mi cuenta' : 'Ingresar a mi cuenta'}
@@ -2341,19 +2921,6 @@ function Storefront() {
       </footer>
 
       {notice && <div className="toast" role="status"><Icon name="check" size={18} />{notice}</div>}
-
-      {productDetailsProduct && (
-        <ProductReviewsDialog
-          key={productDetailsProduct.id}
-          product={productDetailsProduct}
-          summary={reviewSummaries[productDetailsProduct.id] ?? { ratingAverage: 0, reviewCount: 0 }}
-          user={user}
-          emailVerified={emailVerified}
-          onClose={() => setProductDetailsProduct(null)}
-          onLogin={openLoginForReview}
-          onSummaryChange={handleReviewSummaryChange}
-        />
-      )}
 
       {authOpen && (
         <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setAuthOpen(false) }}>
@@ -2644,6 +3211,7 @@ function Storefront() {
             </header>
             <nav className="admin-tabs" aria-label="Secciones de administración">
               <button className={adminTab === 'orders' ? 'active' : ''} onClick={() => setAdminTab('orders')}><Icon name="bag" size={16} /> Pedidos <span>{adminOrders.length}</span></button>
+              <button className={adminTab === 'reviews' ? 'active' : ''} onClick={() => { setAdminReviewMediaLoading(true); setAdminReviewMediaCursor(''); setAdminReviewMediaRefresh((current) => current + 1); setAdminTab('reviews') }}><Icon name="sparkles" size={16} /> Reseñas <span>{pendingReviewMedia.length}</span></button>
               <button className={adminTab === 'products' ? 'active' : ''} onClick={() => setAdminTab('products')}><Icon name="box" size={16} /> Productos <span>{catalog.filter((product) => product.active !== false).length}</span></button>
               <button className={adminTab === 'access' ? 'active' : ''} onClick={() => setAdminTab('access')}><Icon name="user" size={16} /> Accesos</button>
             </nav>
@@ -2718,16 +3286,80 @@ function Storefront() {
                   </article>
                 )) : !adminLoading && <div className="admin-empty"><Icon name="bag" size={28} /><h3>Todavía no hay pedidos</h3><p>Los pedidos con su estado de pago y datos de entrega aparecerán acá.</p></div>}
               </section>
+            ) : adminTab === 'reviews' ? (
+              <section className="admin-review-media">
+                <div className="admin-section-heading">
+                  <div><h3>Archivos pendientes de revisión</h3><p>Solo se publican después de aprobarlos. Revisá que el contenido sea pertinente y no exponga datos personales. Las previsualizaciones vencen a los 5 minutos.</p></div>
+                  {adminReviewMediaLoading && <span className="sync-indicator" aria-label="Cargando archivos pendientes" />}
+                  <button type="button" className="auth-switch admin-review-media-refresh" onClick={() => { setAdminReviewMediaLoading(true); setAdminReviewMediaCursor(''); setAdminReviewMediaRefresh((current) => current + 1) }} disabled={adminReviewMediaLoading}>Actualizar</button>
+                </div>
+                {pendingReviewMedia.length ? pendingReviewMedia.map((media) => (
+                  <article className="admin-review-media-card" key={media.id}>
+                    <div className="admin-review-media-preview">
+                      {media.type === 'video'
+                        ? <video src={media.url} controls preload="metadata" aria-label={`Video adjunto a una opinión de ${media.productName}`} />
+                        : <a href={media.url} target="_blank" rel="noreferrer"><img src={media.url} alt={`Foto adjunta a una opinión de ${media.productName}`} /></a>}
+                    </div>
+                    <div className="admin-review-media-details">
+                      <span>{media.productName} · {media.type === 'video' ? 'Video MP4' : 'Imagen'} · {(media.fileSize / (1024 * 1024)).toFixed(1)} MB</span>
+                      <span>{media.createdAt ? new Date(media.createdAt).toLocaleString('es-AR') : 'Enviado recientemente'} · {media.rating}/5 estrellas</span>
+                      <p>{media.comment}</p>
+                      <div className="admin-review-media-actions">
+                        <button type="button" className="button button-dark" onClick={() => void handleReviewMediaModeration(media.id, 'approve')} disabled={Boolean(adminReviewMediaBusy)}>Aprobar y publicar</button>
+                        <button type="button" className="admin-review-media-reject" onClick={() => void handleReviewMediaModeration(media.id, 'reject')} disabled={Boolean(adminReviewMediaBusy)}>Rechazar y eliminar</button>
+                      </div>
+                    </div>
+                  </article>
+                )) : !adminReviewMediaLoading && <div className="admin-empty"><Icon name="check" size={28} /><h3>No hay archivos pendientes</h3><p>Las fotos y videos enviados por compradores aparecerán acá para su revisión.</p></div>}
+                {pendingReviewMediaHasMore && pendingReviewMediaNextCursor && (
+                  <button
+                    type="button"
+                    className="auth-switch admin-review-media-next"
+                    onClick={() => {
+                      setAdminReviewMediaLoading(true)
+                      setAdminReviewMediaCursor(pendingReviewMediaNextCursor)
+                    }}
+                    disabled={adminReviewMediaLoading}
+                  >
+                    Ver siguientes archivos
+                  </button>
+                )}
+              </section>
             ) : adminTab === 'products' ? (
               <section className="admin-products">
-                <div className="admin-section-heading"><div><h3>{adminEditingProductId ? 'Editar publicación' : 'Publicar un producto'}</h3><p>Usá una imagen pública HTTPS; no se suben archivos a Firebase.</p></div></div>
+                <div className="admin-section-heading"><div><h3>{adminEditingProductId ? 'Editar publicación' : 'Publicar un producto'}</h3><p>Usá URLs públicas HTTPS para las imágenes; no se suben archivos a Firebase.</p></div></div>
                 <form className="admin-product-form" onSubmit={(event) => void handleAdminProductSave(event)}>
                   <label>Nombre<input name="name" value={adminProductDraft.name} onChange={(event) => setAdminProductDraft((current) => ({ ...current, name: event.target.value }))} maxLength={100} required /></label>
                   <label>Categoría<select name="category" value={adminProductDraft.category} onChange={(event) => setAdminProductDraft((current) => ({ ...current, category: event.target.value }))}><option>Bijou</option><option>Accesorios</option><option>Bolsos</option><option>Cabello</option></select></label>
                   <label>Precio (ARS)<input name="price" type="number" min="1" step="1" value={adminProductDraft.price} onChange={(event) => setAdminProductDraft((current) => ({ ...current, price: event.target.value }))} required /></label>
                   <label>Stock<input name="stock" type="number" min="0" step="1" value={adminProductDraft.stock} onChange={(event) => setAdminProductDraft((current) => ({ ...current, stock: event.target.value }))} required /></label>
-                  <label className="admin-product-full">Descripción<textarea name="description" value={adminProductDraft.description} onChange={(event) => setAdminProductDraft((current) => ({ ...current, description: event.target.value }))} maxLength={500} rows={2} required /></label>
-                  <label className="admin-product-full">URL de imagen<input name="image" type="url" placeholder="https://…" value={adminProductDraft.image} onChange={(event) => setAdminProductDraft((current) => ({ ...current, image: event.target.value }))} required /></label>
+                  <label className="admin-product-full">Descripción amplia<textarea name="description" value={adminProductDraft.description} onChange={(event) => setAdminProductDraft((current) => ({ ...current, description: event.target.value }))} maxLength={5000} rows={5} required /></label>
+                  <label className="admin-product-full">URL de imagen principal<input name="image" type="url" placeholder="https://…" value={adminProductDraft.image} onChange={(event) => setAdminProductDraft((current) => ({ ...current, image: event.target.value }))} required /></label>
+                  <label className="admin-product-full">Fotos adicionales<textarea value={adminProductDraft.galleryImages} onChange={(event) => setAdminProductDraft((current) => ({ ...current, galleryImages: event.target.value }))} placeholder={'Una URL HTTPS por línea\nhttps://…'} rows={3} /></label>
+                  <fieldset className="admin-product-attributes admin-product-full">
+                    <legend>Características generales</legend>
+                    <p>Agregá solo datos confirmados del producto.</p>
+                    {adminProductDraft.characteristics.map((attribute, index) => (
+                      <div className="admin-product-attribute-row" key={`characteristic-${index}`}>
+                        <input aria-label={`Nombre de característica ${index + 1}`} value={attribute.label} maxLength={60} placeholder="Característica" onChange={(event) => setAdminProductDraft((current) => ({ ...current, characteristics: current.characteristics.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item) }))} />
+                        <input aria-label={`Valor de característica ${index + 1}`} value={attribute.value} maxLength={300} placeholder="Valor" onChange={(event) => setAdminProductDraft((current) => ({ ...current, characteristics: current.characteristics.map((item, itemIndex) => itemIndex === index ? { ...item, value: event.target.value } : item) }))} />
+                        <button type="button" className="auth-switch" aria-label={`Quitar característica ${index + 1}`} onClick={() => setAdminProductDraft((current) => ({ ...current, characteristics: current.characteristics.filter((_, itemIndex) => itemIndex !== index) }))}>Quitar</button>
+                      </div>
+                    ))}
+                    <button type="button" className="auth-switch admin-attribute-add" disabled={adminProductDraft.characteristics.length >= 30} onClick={() => setAdminProductDraft((current) => ({ ...current, characteristics: [...current.characteristics, { label: '', value: '' }] }))}>+ Agregar característica</button>
+                  </fieldset>
+                  <fieldset className="admin-product-attributes admin-product-full">
+                    <legend>Especificaciones</legend>
+                    <p>Usá campos distintos para cada producto según corresponda.</p>
+                    {adminProductDraft.specifications.map((attribute, index) => (
+                      <div className="admin-product-attribute-row" key={`specification-${index}`}>
+                        <input aria-label={`Nombre de especificación ${index + 1}`} value={attribute.label} maxLength={60} placeholder="Especificación" onChange={(event) => setAdminProductDraft((current) => ({ ...current, specifications: current.specifications.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item) }))} />
+                        <input aria-label={`Valor de especificación ${index + 1}`} value={attribute.value} maxLength={300} placeholder="Valor" onChange={(event) => setAdminProductDraft((current) => ({ ...current, specifications: current.specifications.map((item, itemIndex) => itemIndex === index ? { ...item, value: event.target.value } : item) }))} />
+                        <button type="button" className="auth-switch" aria-label={`Quitar especificación ${index + 1}`} onClick={() => setAdminProductDraft((current) => ({ ...current, specifications: current.specifications.filter((_, itemIndex) => itemIndex !== index) }))}>Quitar</button>
+                      </div>
+                    ))}
+                    <button type="button" className="auth-switch admin-attribute-add" disabled={adminProductDraft.specifications.length >= 30} onClick={() => setAdminProductDraft((current) => ({ ...current, specifications: [...current.specifications, { label: '', value: '' }] }))}>+ Agregar especificación</button>
+                  </fieldset>
                   <div className="admin-product-actions admin-product-full">
                     {adminEditingProductId && <button type="button" className="auth-switch" onClick={() => { setAdminEditingProductId(null); setAdminProductDraft(emptyAdminProductDraft) }}>Cancelar edición</button>}
                     <button className="button button-dark profile-save-button" type="submit" disabled={adminProductBusy}>{adminProductBusy ? <><span className="button-spinner" aria-hidden="true" /> Guardando…</> : adminEditingProductId ? 'Guardar cambios' : 'Publicar producto'}</button>

@@ -1,3 +1,8 @@
+export type ProductAttribute = {
+  label: string
+  value: string
+}
+
 export type Product = {
   id: string
   name: string
@@ -8,7 +13,10 @@ export type Product = {
   rating?: string
   badge?: string
   image: string
+  images?: string[]
   imageTone: 'peach' | 'lavender' | 'butter' | 'mint'
+  characteristics?: ProductAttribute[]
+  specifications?: ProductAttribute[]
   stock?: number
   active?: boolean
 }
