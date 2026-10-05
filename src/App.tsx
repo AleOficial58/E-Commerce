@@ -49,7 +49,7 @@ import {
   type ProductReviewsResult,
   type ReviewSummary,
 } from './lib/reviewsApi'
-import { uploadAdminProductImage } from './lib/adminProductApi'
+import { loadAdminWishlistCounts, uploadAdminProductImage } from './lib/adminProductApi'
 import { AuthActionPage } from './components/AuthActionPage'
 import { CustomerOrdersPage } from './components/CustomerOrdersPage'
 import { OrderStatusPage } from './components/OrderStatusPage'
@@ -303,6 +303,7 @@ type AdminProductDraft = {
   category: string
   description: string
   price: string
+  originalPrice: string
   stock: string
   image: string
   galleryImages: string
@@ -316,6 +317,7 @@ const emptyAdminProductDraft: AdminProductDraft = {
   category: 'Bijou',
   description: '',
   price: '',
+  originalPrice: '',
   stock: '10',
   image: '',
   galleryImages: '',
@@ -451,6 +453,7 @@ type ProductDetailPageProps = {
   disabled: boolean
   cartQuantity: number
   cartCount: number
+  cartJustAdded: boolean
   onClose: () => void
   onOpenCart: () => void
   onAdd: (product: Product, quantity: number) => boolean
@@ -468,6 +471,7 @@ function ProductDetailPage({
   disabled,
   cartQuantity,
   cartCount,
+  cartJustAdded,
   onClose,
   onOpenCart,
   onAdd,
@@ -640,7 +644,7 @@ function ProductDetailPage({
           <div className="product-detail-gallery">
             <div className={`product-detail-main-image image-${product.imageTone}`}>
               <img src={galleryImages[selectedImage] ?? product.image} alt={product.name} />
-              {product.badge && <span className="product-badge">{product.badge === 'Más elegido' ? 'Selección Lúmina' : product.badge}</span>}
+              {product.badge && <span className={`product-badge${product.originalPrice && product.originalPrice > product.price ? ' badge-offer' : ''}`}>{product.badge === 'Más elegido' ? 'Selección Lúmina' : product.badge}</span>}
             </div>
             {galleryImages.length > 1 && (
               <div className="product-detail-thumbnails" aria-label="Imágenes del producto">
@@ -672,7 +676,7 @@ function ProductDetailPage({
             <div className="product-detail-price">
               <strong>{money.format(product.price)}</strong>
               {product.originalPrice && <del>{money.format(product.originalPrice)}</del>}
-              <span>Precio publicado</span>
+              <span>{product.originalPrice && product.originalPrice > product.price ? 'Precio de oferta' : 'Precio publicado'}</span>
             </div>
             <p className={`product-stock-state ${stock > 0 ? 'is-available' : 'is-unavailable'}`}>
               <span aria-hidden="true" />{maxAvailable > 0
@@ -687,11 +691,11 @@ function ProductDetailPage({
                 <input id="product-quantity" type="number" min="1" max={maxAvailable} value={selectedQuantity} onChange={(event) => setQuantity(Math.min(maxAvailable || 1, Math.max(1, Number(event.target.value) || 1)))} />
                 <button type="button" aria-label="Agregar una unidad" onClick={() => setQuantity((current) => Math.min(maxAvailable, current + 1))} disabled={selectedQuantity >= maxAvailable}><Icon name="plus" size={15} /></button>
               </div>
-              <button className="button button-dark product-detail-add" type="button" disabled={disabled || maxAvailable < 1} onClick={() => {
+              <button className={`button button-dark product-detail-add${cartJustAdded ? ' is-added' : ''}`} type="button" disabled={disabled || maxAvailable < 1} onClick={() => {
                 if (onAdd(product, selectedQuantity)) setPurchaseNotice('Se agregó al bolso. Podés seguir explorando o revisar tu selección.')
                 else setPurchaseNotice('No pudimos agregar esa cantidad. Revisá el stock disponible.')
               }}>
-                Agregar al bolso <Icon name="bag" size={17} />
+                {cartJustAdded ? 'Agregado al bolso' : 'Agregar al bolso'} <Icon name={cartJustAdded ? 'check' : 'bag'} size={17} />
               </button>
             </div>
             {purchaseNotice && <p className="product-purchase-notice" role="status">{purchaseNotice}</p>}
@@ -927,18 +931,19 @@ type ProductCardProps = {
   product: Product
   summary: ReviewSummary
   isFavorite: boolean
+  addedToCart: boolean
   disabled: boolean
   onFavorite: () => void
   onAdd: () => void
   onOpen: () => void
 }
 
-function ProductCard({ product, summary, isFavorite, disabled, onFavorite, onAdd, onOpen }: ProductCardProps) {
+function ProductCard({ product, summary, isFavorite, addedToCart, disabled, onFavorite, onAdd, onOpen }: ProductCardProps) {
   return (
     <article className="product-card">
       <div className={`product-image image-${product.imageTone}`}>
         <img src={product.image} alt={product.name} loading="lazy" />
-        {product.badge && <span className={`product-badge ${product.badge === 'Más elegido' ? 'badge-pink' : ''}`}>{product.badge === 'Más elegido' ? 'Selección Lúmina' : product.badge}</span>}
+        {product.badge && <span className={`product-badge${product.badge === 'Más elegido' ? ' badge-pink' : ''}${product.originalPrice && product.originalPrice > product.price ? ' badge-offer' : ''}`}>{product.badge === 'Más elegido' ? 'Selección Lúmina' : product.badge}</span>}
         <button
           className={`favorite-button ${isFavorite ? 'is-favorite' : ''}`}
           onClick={onFavorite}
@@ -948,8 +953,8 @@ function ProductCard({ product, summary, isFavorite, disabled, onFavorite, onAdd
         >
           <Icon name="heart" size={19} />
         </button>
-        <button className="quick-add" onClick={onAdd} disabled={disabled}>
-          <Icon name="plus" size={17} /> Agregar al bolso
+        <button className={`quick-add${addedToCart ? ' is-added' : ''}`} onClick={onAdd} disabled={disabled} aria-live="polite">
+          <Icon name={addedToCart ? 'check' : 'plus'} size={17} /> {addedToCart ? 'Agregado al bolso' : 'Agregar al bolso'}
         </button>
       </div>
       <div className="product-info">
@@ -975,6 +980,7 @@ type ProductRailProps = {
   description: string
   products: Product[]
   favorites: string[]
+  addedProductId: string
   reviewSummaries: Record<string, ReviewSummary>
   disabled: boolean
   onFavorite: (productId: string) => void
@@ -988,6 +994,7 @@ function ProductRail({
   description,
   products: railProducts,
   favorites,
+  addedProductId,
   reviewSummaries,
   disabled,
   onFavorite,
@@ -1021,6 +1028,7 @@ function ProductRail({
             product={product}
             summary={reviewSummaries[product.id] ?? { ratingAverage: 0, reviewCount: 0 }}
             isFavorite={favorites.includes(product.id)}
+            addedToCart={addedProductId === product.id}
             disabled={disabled}
             onFavorite={() => onFavorite(product.id)}
             onAdd={() => onAdd(product)}
@@ -1086,6 +1094,10 @@ function Storefront() {
   const [adminAccessibility, setAdminAccessibility] = useState(readAdminAccessibilitySettings)
   const [adminOrders, setAdminOrders] = useState<AdminOrder[]>([])
   const [adminLoading, setAdminLoading] = useState(false)
+  const [adminWishlistCounts, setAdminWishlistCounts] = useState<Record<string, number>>({})
+  const [adminWishlistLoading, setAdminWishlistLoading] = useState(false)
+  const [adminWishlistError, setAdminWishlistError] = useState('')
+  const [adminWishlistRefresh, setAdminWishlistRefresh] = useState(0)
   const [pendingReviewMedia, setPendingReviewMedia] = useState<PendingReviewMedia[]>([])
   const [adminProductReviews, setAdminProductReviews] = useState<AdminProductReview[]>([])
   const [adminReviewMediaLoading, setAdminReviewMediaLoading] = useState(false)
@@ -1116,6 +1128,7 @@ function Storefront() {
   const [user, setUser] = useState<User | null>(null)
   const [emailVerified, setEmailVerified] = useState(false)
   const [notice, setNotice] = useState('')
+  const [cartFeedbackProductId, setCartFeedbackProductId] = useState('')
   const [authError, setAuthError] = useState('')
   const [accountError, setAccountError] = useState('')
   const [authBusy, setAuthBusy] = useState(false)
@@ -1132,6 +1145,7 @@ function Storefront() {
   const adminDashboardRef = useRef<HTMLElement>(null)
   const adminPreviousFocus = useRef<HTMLElement | null>(null)
   const saveQueue = useRef<Promise<void>>(Promise.resolve())
+  const cartFeedbackTimeout = useRef<number | null>(null)
   const knownAdminOrderIds = useRef<Set<string> | null>(null)
   const clearedPaymentOrderIds = useRef<Set<string>>(new Set())
   const paymentReturnNotifiedOrderIds = useRef<Set<string>>(new Set())
@@ -1790,6 +1804,33 @@ function Storefront() {
   }, [adminOpen, isAdmin, user])
 
   useEffect(() => {
+    if (!adminOpen || !isAdmin || adminTab !== 'products' || !user) return
+    let active = true
+    const refreshWishlistCounts = async () => {
+      setAdminWishlistLoading(true)
+      try {
+        const counts = await loadAdminWishlistCounts(user, catalog.map((product) => product.id))
+        if (!active) return
+        setAdminWishlistCounts(counts)
+        setAdminWishlistError('')
+      } catch (error) {
+        console.error('No se pudieron cargar los conteos de favoritos de los productos.', error)
+        if (active) {
+          setAdminWishlistError(error instanceof Error ? error.message : 'No se pudieron cargar los favoritos.')
+        }
+      } finally {
+        if (active) setAdminWishlistLoading(false)
+      }
+    }
+    void refreshWishlistCounts()
+    const interval = window.setInterval(() => void refreshWishlistCounts(), 60_000)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
+  }, [adminOpen, adminTab, adminWishlistRefresh, catalog, isAdmin, user])
+
+  useEffect(() => {
     if (!adminOpen || !isAdmin || adminTab !== 'reviews' || !user) return
     let active = true
     void loadPendingReviewMedia(user, adminReviewMediaCursor)
@@ -1957,6 +1998,10 @@ function Storefront() {
     return () => window.clearTimeout(timeout)
   }, [notice])
 
+  useEffect(() => () => {
+    if (cartFeedbackTimeout.current !== null) window.clearTimeout(cartFeedbackTimeout.current)
+  }, [])
+
   const visibleProducts = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase('es-AR')
     const filtered = catalog.filter((product) => {
@@ -2075,11 +2120,11 @@ function Storefront() {
 
   function toggleFavorite(id: string) {
     if (storeLoading || authLoading) return
-    setFavorites((current) =>
-      current.includes(id)
-        ? current.filter((favoriteId) => favoriteId !== id)
-        : [...current, id],
-    )
+    const removing = favorites.includes(id)
+    setFavorites((current) => removing
+      ? current.filter((favoriteId) => favoriteId !== id)
+      : [...current, id])
+    setNotice(removing ? 'Se quitó de tus favoritos.' : 'Guardado en tus favoritos.')
   }
 
   function addToCart(product: Product, requestedQuantity = 1): boolean {
@@ -2095,6 +2140,12 @@ function Storefront() {
       ...current,
       [product.id]: Math.min(stock, (current[product.id] ?? 0) + quantity),
     }))
+    setCartFeedbackProductId(product.id)
+    if (cartFeedbackTimeout.current !== null) window.clearTimeout(cartFeedbackTimeout.current)
+    cartFeedbackTimeout.current = window.setTimeout(() => {
+      setCartFeedbackProductId('')
+      cartFeedbackTimeout.current = null
+    }, 1400)
     setNotice(`${quantity} ${quantity === 1 ? 'unidad' : 'unidades'} de ${product.name} se sumaron a tu bolso`)
     return true
   }
@@ -2469,6 +2520,8 @@ function Storefront() {
       .filter(Boolean)
     const uniqueImageCount = new Set([image, ...images].filter(Boolean)).size
     const price = Number(formData.get('price'))
+    const originalPriceInput = String(formData.get('originalPrice') ?? '').trim()
+    const originalPrice = originalPriceInput ? Number(originalPriceInput) : undefined
     const stock = Number(formData.get('stock'))
     const validAttributes = (attributes: ProductAttribute[]) =>
       attributes.length <= 30 &&
@@ -2489,6 +2542,10 @@ function Storefront() {
       !Number.isSafeInteger(price) ||
       price <= 0 ||
       price > 1_000_000_000 ||
+      (originalPriceInput !== '' &&
+        (!Number.isSafeInteger(originalPrice) ||
+          (originalPrice ?? 0) <= price ||
+          (originalPrice ?? 0) > 1_000_000_000)) ||
       !Number.isInteger(stock) ||
       stock < 0 ||
       stock > 1_000_000 ||
@@ -2501,7 +2558,7 @@ function Storefront() {
       !validAttributes(adminProductDraft.characteristics) ||
       !validAttributes(adminProductDraft.specifications)
     ) {
-      setAdminError('Revisá los campos: agregá entre 5 y 8 fotos HTTPS distintas, una descripción de hasta 5000 caracteres y hasta 30 atributos por sección.')
+      setAdminError('Revisá los campos. Si aplicás una oferta, el precio anterior debe ser entero y mayor al precio actual. Agregá entre 5 y 8 fotos HTTPS distintas, una descripción de hasta 5000 caracteres y hasta 30 atributos por sección.')
       return
     }
 
@@ -2516,12 +2573,19 @@ function Storefront() {
       }
       const imageTone: Product['imageTone'] =
         category === 'Bijou' ? 'lavender' : category === 'Bolsos' ? 'butter' : category === 'Cabello' ? 'mint' : 'peach'
+      const previousBadge = existing.data()?.badge
       const productData = {
         id,
         name,
         category,
         description,
         price,
+        originalPrice: originalPrice ?? null,
+        badge: originalPrice !== undefined
+          ? 'Oferta'
+          : typeof previousBadge === 'string' && previousBadge !== 'Oferta'
+            ? previousBadge
+            : null,
         image,
         images,
         characteristics: adminProductDraft.characteristics,
@@ -2716,6 +2780,7 @@ function Storefront() {
       category: product.category,
       description: product.description,
       price: String(product.price),
+      originalPrice: product.originalPrice ? String(product.originalPrice) : '',
       stock: String(product.stock ?? 50),
       image: product.image,
       galleryImages: (product.images ?? []).filter((image) => image !== product.image).join('\n'),
@@ -3048,6 +3113,7 @@ function Storefront() {
         disabled={storeLoading || authLoading}
         cartQuantity={cart[routeProduct.id] ?? 0}
         cartCount={cartCount}
+        cartJustAdded={cartFeedbackProductId === routeProduct.id}
         onClose={closeProductDetails}
         onOpenCart={openProductCart}
         onAdd={addToCart}
@@ -3258,6 +3324,7 @@ function Storefront() {
             description="Piezas elegidas con precios especiales por tiempo limitado."
             products={dealProducts}
             favorites={favorites}
+            addedProductId={cartFeedbackProductId}
             reviewSummaries={reviewSummaries}
             disabled={storeLoading || authLoading}
             onFavorite={toggleFavorite}
@@ -3270,6 +3337,7 @@ function Storefront() {
             description={favorites.length ? 'Ideas según las categorías de tus favoritos.' : 'Piezas de la colección para encontrar tu próximo detalle.'}
             products={personalizedProducts}
             favorites={favorites}
+            addedProductId={cartFeedbackProductId}
             reviewSummaries={reviewSummaries}
             disabled={storeLoading || authLoading}
             onFavorite={toggleFavorite}
@@ -3340,6 +3408,7 @@ function Storefront() {
                 product={product}
                 summary={reviewSummaries[product.id] ?? { ratingAverage: 0, reviewCount: 0 }}
                 isFavorite={favorites.includes(product.id)}
+                addedToCart={cartFeedbackProductId === product.id}
                 disabled={storeLoading || authLoading}
                 onFavorite={() => toggleFavorite(product.id)}
                 onAdd={() => addToCart(product)}
@@ -3913,6 +3982,8 @@ function Storefront() {
                   <label>Nombre<input name="name" value={adminProductDraft.name} onChange={(event) => setAdminProductDraft((current) => ({ ...current, name: event.target.value }))} maxLength={100} required disabled={adminProductUploadBusy} /></label>
                   <label>Categoría<select name="category" value={adminProductDraft.category} onChange={(event) => setAdminProductDraft((current) => ({ ...current, category: event.target.value }))}><option>Bijou</option><option>Accesorios</option><option>Bolsos</option><option>Cabello</option></select></label>
                   <label>Precio (ARS)<input name="price" type="number" min="1" step="1" value={adminProductDraft.price} onChange={(event) => setAdminProductDraft((current) => ({ ...current, price: event.target.value }))} required /></label>
+                  <label>Precio anterior (ARS, opcional)<input name="originalPrice" type="number" min="1" step="1" value={adminProductDraft.originalPrice} onChange={(event) => setAdminProductDraft((current) => ({ ...current, originalPrice: event.target.value }))} aria-describedby="admin-product-offer-help" /></label>
+                  <p className="admin-product-offer-help admin-product-full" id="admin-product-offer-help">Si es mayor al precio actual, el producto mostrará el precio anterior tachado y la etiqueta «Oferta».</p>
                   <label>Stock<input name="stock" type="number" min="0" step="1" value={adminProductDraft.stock} onChange={(event) => setAdminProductDraft((current) => ({ ...current, stock: event.target.value }))} required /></label>
                   <label className="admin-product-full">Descripción amplia<textarea name="description" value={adminProductDraft.description} onChange={(event) => setAdminProductDraft((current) => ({ ...current, description: event.target.value }))} maxLength={5000} rows={5} required /></label>
                   <fieldset className="admin-product-gallery-editor admin-product-full">
@@ -4015,11 +4086,36 @@ function Storefront() {
                   </div>
                 </form>
                 <div className="admin-product-list">
-                  <h3>Catálogo y stock</h3>
+                  <div className="admin-product-list-heading">
+                    <div><h3>Catálogo y stock</h3><p>Favoritos guardados en cuentas de clientes; no incluye listas locales de visitantes.</p></div>
+                    <button
+                      className="admin-wishlist-refresh"
+                      type="button"
+                      onClick={() => setAdminWishlistRefresh((current) => current + 1)}
+                      disabled={adminWishlistLoading}
+                    >
+                      {adminWishlistLoading ? 'Actualizando…' : 'Actualizar favoritos'}
+                    </button>
+                  </div>
+                  {adminWishlistError && (
+                    <p className="admin-wishlist-error" role="alert">
+                      {adminWishlistError}
+                      <button type="button" onClick={() => setAdminWishlistRefresh((current) => current + 1)}>Reintentar</button>
+                    </p>
+                  )}
                   {catalog.map((product) => (
                     <article className="admin-product-row" key={product.id}>
                       <img src={product.image} alt="" />
-                      <div><strong>{product.name}</strong><span>{money.format(product.price)} · {product.stock ?? 50} en stock · {product.active === false ? 'Oculto' : 'Publicado'}</span></div>
+                      <div className="admin-product-row-info">
+                        <strong>{product.name}</strong>
+                        <span>{money.format(product.price)} · {product.stock ?? 50} en stock · {product.active === false ? 'Oculto' : 'Publicado'}</span>
+                        <span className="admin-product-wishlist">
+                          <Icon name="heart" size={14} />
+                          {adminWishlistCounts[product.id] === undefined
+                            ? adminWishlistLoading ? 'Cargando favoritos…' : adminWishlistError ? 'No disponible' : '—'
+                            : `${adminWishlistCounts[product.id]} ${adminWishlistCounts[product.id] === 1 ? 'favorito' : 'favoritos'}`}
+                        </span>
+                      </div>
                       <button type="button" onClick={() => handleEditAdminProduct(product)}>Editar</button>
                       <button type="button" onClick={() => void handleToggleProductAvailability(product)}>{product.active === false ? 'Publicar' : 'Ocultar'}</button>
                     </article>

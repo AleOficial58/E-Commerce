@@ -179,6 +179,14 @@ const adminProductImageLimiter = rateLimit({
   message: { error: 'Hubo muchas cargas de imágenes. Esperá unos minutos antes de volver a intentarlo.' },
 })
 
+const adminWishlistCountsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Hubo muchas consultas de favoritos. Esperá unos minutos antes de volver a intentarlo.' },
+})
+
 function requireFirebaseServices(_request: Request, _response: Response, next: NextFunction) {
   if (!firebaseConfigured) {
     next(new ApiError('La API todavía no tiene credenciales de Firebase Admin configuradas.', 503))
@@ -2898,6 +2906,48 @@ app.get(
       response.json({
         orders: snapshot.docs.map((order) => ({ id: order.id, ...order.data() })),
       })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
+
+app.post(
+  '/api/admin/products/wishlist-counts',
+  adminWishlistCountsLimiter,
+  requireFirebaseServices,
+  requireUser,
+  requireAdmin,
+  async (request, response, next) => {
+    try {
+      const productIds = request.body?.productIds
+      if (
+        !Array.isArray(productIds) ||
+        productIds.length > 100 ||
+        productIds.some((productId: unknown) =>
+          typeof productId !== 'string' || !/^[a-z0-9-]{1,80}$/.test(productId),
+        )
+      ) {
+        throw new ApiError('La lista de productos no es válida.', 400)
+      }
+      const uniqueProductIds = [...new Set<string>(productIds)]
+      const counts: Record<string, number> = Object.fromEntries(
+        uniqueProductIds.map((productId) => [productId, 0]),
+      )
+      for (let index = 0; index < uniqueProductIds.length; index += 6) {
+        const batch = uniqueProductIds.slice(index, index + 6)
+        const results = await Promise.all(batch.map(async (productId) => {
+          const aggregate = await firestore
+            .collectionGroup('favorites')
+            .where('productId', '==', productId)
+            .count()
+            .get()
+          return [productId, aggregate.data().count] as const
+        }))
+        for (const [productId, count] of results) counts[productId] = count
+      }
+      response.set('Cache-Control', 'private, no-store')
+      response.json({ counts })
     } catch (error) {
       next(error)
     }
