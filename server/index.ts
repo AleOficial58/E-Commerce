@@ -2085,6 +2085,11 @@ app.post(
         ? cloudinaryResult.error.message
         : ''
       if (!cloudinaryResponse.ok) {
+        console.error('Cloudinary rechazó un archivo de opinión.', {
+          status: cloudinaryResponse.status,
+          resourceType: type,
+          error: providerError.slice(0, 300) || 'Cloudinary no devolvió un mensaje.',
+        })
         if (
           cloudinaryResponse.status === 402 ||
           cloudinaryResponse.status === 420 ||
