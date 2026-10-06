@@ -3104,17 +3104,7 @@ main {
 }
 
 .order-timeline li.is-current:not(:last-child)::after {
-  background: linear-gradient(
-    90deg,
-    #62a978 0%,
-    #62a978 34%,
-    #c1e2ca 45%,
-    #62a978 56%,
-    #dfd9d9 56%,
-    #dfd9d9 100%
-  );
-  background-size: 200% 100%;
-  animation: order-timeline-flow 2.4s linear infinite;
+  background: linear-gradient(90deg, #62a978 0%, #a9cfb2 58%, #dfd9d9 100%);
 }
 
 .order-timeline li.is-current:not(:last-child)::before {
@@ -3129,7 +3119,7 @@ main {
   background: #3f925a;
   box-shadow: 0 0 0 2px rgb(98 169 120 / 18%);
   content: '';
-  animation: order-timeline-travel 2.4s ease-in-out infinite;
+  animation: order-timeline-travel 2.8s linear infinite;
 }
 
 @keyframes order-status-pulse {
@@ -3137,23 +3127,32 @@ main {
   50% { box-shadow: 0 0 0 5px rgb(98 169 120 / 0%); }
 }
 
-@keyframes order-timeline-flow {
-  from { background-position: 100% 0; }
-  to { background-position: 0 0; }
-}
-
 @keyframes order-timeline-travel {
-  0%,
-  12% {
+  0% {
     left: calc(50% + 9px);
     opacity: 0;
   }
-  22% { opacity: 1; }
-  78% { opacity: 1; }
-  88%,
+  10% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
   100% {
     left: calc(150% - 9px);
     opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .order-timeline .is-current .order-timeline-marker,
+  .order-timeline li.is-current:not(:last-child)::before {
+    animation: none !important;
+  }
+
+  .order-timeline li.is-current:not(:last-child)::before {
+    left: calc(50% + 9px);
+    opacity: 1;
   }
 }
 
