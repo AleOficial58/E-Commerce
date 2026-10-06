@@ -11447,6 +11447,72 @@ html[data-theme='dark'] .order-message-form textarea {
   padding: 32px 20px;
 }
 
+.admin-main .admin-shipment-editor {
+  overflow: hidden;
+  border-color: var(--admin-line);
+  background:
+    radial-gradient(ellipse at 100% 0, rgb(188 152 174 / 9%), transparent 46%),
+    var(--admin-surface-muted);
+}
+
+.admin-main .admin-shipment-editor > summary {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--admin-ink);
+  font-size: 12px;
+  letter-spacing: -.01em;
+  list-style-position: inside;
+}
+
+.admin-main .admin-shipment-editor form {
+  gap: 13px;
+}
+
+.admin-main .admin-shipment-editor label {
+  gap: 7px;
+  color: var(--admin-muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.admin-main .admin-shipment-editor input,
+.admin-main .admin-shipment-editor select {
+  min-height: 40px;
+  padding: 8px 10px;
+  border-color: var(--admin-line);
+  border-radius: 9px;
+  color: var(--admin-ink);
+  background: var(--admin-surface);
+  font-size: 11px;
+}
+
+.admin-main .admin-shipment-editor input:focus,
+.admin-main .admin-shipment-editor select:focus {
+  border-color: var(--admin-accent);
+  outline: 3px solid color-mix(in srgb, var(--admin-accent) 18%, transparent);
+}
+
+.admin-main .admin-shipment-estimate-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--admin-accent) 24%, var(--admin-line));
+  border-radius: 10px;
+  color: var(--admin-ink);
+  background: var(--admin-accent-soft);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.admin-main .admin-shipment-save {
+  min-height: 42px;
+  border-radius: 11px;
+  font-size: 11px;
+}
+
 html[data-theme='dark'] .order-status-card.has-purchase-celebration {
   border-color: #493744;
   background: #2a2029;

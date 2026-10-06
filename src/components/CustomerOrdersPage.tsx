@@ -33,6 +33,20 @@ function getOrderGroup(order: CustomerOrderSummary): OrderGroup {
   return 'active'
 }
 
+function formatEstimatedDelivery(start: string, end: string): string {
+  const dateFormatter = new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long' })
+  if (start === end) {
+    const today = new Date()
+    const localToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    return start === localToday
+      ? 'Llega hoy'
+      : `Llega el ${dateFormatter.format(new Date(`${start}T12:00:00`))}`
+  }
+  return `Llega entre el ${dateFormatter.format(new Date(`${start}T12:00:00`))} y el ${
+    dateFormatter.format(new Date(`${end}T12:00:00`))
+  }`
+}
+
 function getStatusLabel(order: CustomerOrderSummary): string {
   if (order.status === 'cancellation_refund_pending') return 'Reembolso en proceso'
   if (order.status === 'cancelled' || order.paymentStatus === 'refunded') return 'Compra cancelada'
@@ -139,12 +153,7 @@ export function CustomerOrdersPage({
                     </div>
                     {order.shipmentType && order.estimatedDeliveryStart && order.estimatedDeliveryEnd && (
                       <p className="customer-order-eta">
-                        Llega entre el{' '}
-                        {new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long' })
-                          .format(new Date(`${order.estimatedDeliveryStart}T12:00:00`))}
-                        {' y el '}
-                        {new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long' })
-                          .format(new Date(`${order.estimatedDeliveryEnd}T12:00:00`))}
+                        {formatEstimatedDelivery(order.estimatedDeliveryStart, order.estimatedDeliveryEnd)}
                       </p>
                     )}
                     <div className="customer-order-card-body">

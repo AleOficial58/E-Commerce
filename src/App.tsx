@@ -269,6 +269,8 @@ type CustomerProfile = {
   postalCode: string
 }
 
+type AdminDeliveryEstimateMode = 'range' | 'today' | 'date'
+
 const emptyCustomerProfile: CustomerProfile = {
   name: '',
   phone: '',
@@ -277,6 +279,13 @@ const emptyCustomerProfile: CustomerProfile = {
   city: '',
   province: '',
   postalCode: '',
+}
+
+function getLocalDateInputValue(date = new Date()): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function getPaymentReturnParams(): { orderId: string; paymentId: string } {
@@ -1135,6 +1144,9 @@ function Storefront() {
   const [adminProductReviewsNextCursor, setAdminProductReviewsNextCursor] = useState<string | null>(null)
   const [adminProductReviewsHasMore, setAdminProductReviewsHasMore] = useState(false)
   const [adminShipmentBusy, setAdminShipmentBusy] = useState('')
+  const [adminDeliveryEstimateModes, setAdminDeliveryEstimateModes] = useState<
+    Record<string, AdminDeliveryEstimateMode>
+  >({})
   const [adminMessageThreads, setAdminMessageThreads] = useState<Record<string, boolean>>({})
   const [adminError, setAdminError] = useState('')
   const [adminUserEmail, setAdminUserEmail] = useState('')
@@ -2959,8 +2971,23 @@ function Storefront() {
     const formData = new FormData(event.currentTarget)
     const shipmentType = formData.get('shipmentType')
     const shipmentStage = formData.get('shipmentStage')
+    const estimateMode = formData.get('estimateMode')
+    const exactDate = String(formData.get('estimatedDeliveryDate') ?? '')
+    const rangeStart = String(formData.get('estimatedDeliveryStart') ?? '')
+    const rangeEnd = String(formData.get('estimatedDeliveryEnd') ?? '')
+    const estimatedDeliveryStart = estimateMode === 'today'
+      ? getLocalDateInputValue()
+      : estimateMode === 'date'
+        ? exactDate
+        : rangeStart
+    const estimatedDeliveryEnd = estimateMode === 'today'
+      ? estimatedDeliveryStart
+      : estimateMode === 'date'
+        ? exactDate
+        : rangeEnd
     if (
       (shipmentType !== 'local' && shipmentType !== 'international') ||
+      (estimateMode !== 'range' && estimateMode !== 'today' && estimateMode !== 'date') ||
       typeof shipmentStage !== 'string' ||
       ![
         'preparing',
@@ -2978,8 +3005,8 @@ function Storefront() {
     const shipment: AdminShipmentUpdate = {
       shipmentType,
       shipmentStage: shipmentStage as AdminShipmentUpdate['shipmentStage'],
-      estimatedDeliveryStart: String(formData.get('estimatedDeliveryStart') ?? ''),
-      estimatedDeliveryEnd: String(formData.get('estimatedDeliveryEnd') ?? ''),
+      estimatedDeliveryStart,
+      estimatedDeliveryEnd,
       shipmentStageDetail: String(formData.get('shipmentStageDetail') ?? ''),
       trackingCarrier: String(formData.get('trackingCarrier') ?? ''),
       trackingCode: String(formData.get('trackingCode') ?? ''),
@@ -3993,8 +4020,80 @@ function Storefront() {
                               <option value="delivered">Entregada</option>
                             </select>
                           </label>
-                          <label>Fecha estimada desde<input name="estimatedDeliveryStart" type="date" defaultValue={order.estimatedDeliveryStart ?? ''} required /></label>
-                          <label>Fecha estimada hasta<input name="estimatedDeliveryEnd" type="date" defaultValue={order.estimatedDeliveryEnd ?? ''} required /></label>
+                          {(() => {
+                            const hasSingleDate = Boolean(
+                              order.estimatedDeliveryStart &&
+                              order.estimatedDeliveryStart === order.estimatedDeliveryEnd,
+                            )
+                            const defaultEstimateMode: AdminDeliveryEstimateMode = hasSingleDate
+                              ? order.estimatedDeliveryStart === getLocalDateInputValue()
+                                ? 'today'
+                                : 'date'
+                              : 'range'
+                            const estimateMode = adminDeliveryEstimateModes[order.id] ?? defaultEstimateMode
+                            return (
+                              <>
+                                <label className="admin-shipment-full">
+                                  Fecha estimada de entrega
+                                  <select
+                                    name="estimateMode"
+                                    value={estimateMode}
+                                    onChange={(event) => {
+                                      const value = event.target.value
+                                      if (value === 'range' || value === 'today' || value === 'date') {
+                                        setAdminDeliveryEstimateModes((current) => ({
+                                          ...current,
+                                          [order.id]: value,
+                                        }))
+                                      }
+                                    }}
+                                  >
+                                    <option value="range">Entre dos fechas</option>
+                                    <option value="today">Llega hoy</option>
+                                    <option value="date">Un día específico</option>
+                                  </select>
+                                </label>
+                                {estimateMode === 'range' ? (
+                                  <>
+                                    <label>
+                                      Desde
+                                      <input
+                                        name="estimatedDeliveryStart"
+                                        type="date"
+                                        defaultValue={order.estimatedDeliveryStart ?? ''}
+                                        required
+                                      />
+                                    </label>
+                                    <label>
+                                      Hasta
+                                      <input
+                                        name="estimatedDeliveryEnd"
+                                        type="date"
+                                        defaultValue={order.estimatedDeliveryEnd ?? ''}
+                                        required
+                                      />
+                                    </label>
+                                  </>
+                                ) : estimateMode === 'date' ? (
+                                  <label className="admin-shipment-full">
+                                    Día de entrega
+                                    <input
+                                      name="estimatedDeliveryDate"
+                                      type="date"
+                                      defaultValue={order.estimatedDeliveryStart ?? ''}
+                                      required
+                                    />
+                                  </label>
+                                ) : (
+                                  <p className="admin-shipment-estimate-hint">
+                                    La fecha se guardará como hoy ({new Intl.DateTimeFormat('es-AR', {
+                                      dateStyle: 'long',
+                                    }).format(new Date(`${getLocalDateInputValue()}T12:00:00`))}).
+                                  </p>
+                                )}
+                              </>
+                            )
+                          })()}
                           <label className="admin-shipment-full">Novedad visible para el cliente<input name="shipmentStageDetail" defaultValue={order.shipmentStageDetail ?? ''} maxLength={240} placeholder="Ej.: Tu paquete ya salió de aduana." /></label>
                           <label>Correo / transportista<input name="trackingCarrier" defaultValue={order.trackingCarrier ?? ''} maxLength={80} placeholder="Correo Argentino, Andreani…" /></label>
                           <label>Código de seguimiento<input name="trackingCode" defaultValue={order.trackingCode ?? ''} maxLength={80} /></label>

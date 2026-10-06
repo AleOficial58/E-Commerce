@@ -60,6 +60,25 @@ function getOrderFulfillmentStage(order: CustomerOrderStatus): string {
   return ''
 }
 
+function getLocalDateInputValue(date = new Date()): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function formatEstimatedDelivery(start: string, end: string): string {
+  const dateFormatter = new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long' })
+  if (start === end) {
+    return start === getLocalDateInputValue()
+      ? 'Llega hoy'
+      : `Llega el ${dateFormatter.format(new Date(`${start}T12:00:00`))}`
+  }
+  return `Llega entre el ${dateFormatter.format(new Date(`${start}T12:00:00`))} y el ${
+    dateFormatter.format(new Date(`${end}T12:00:00`))
+  }`
+}
+
 function getStatusTitle(status: PaymentReturnStatus, order: CustomerOrderStatus | null): string {
   if (order?.status === 'cancellation_refund_pending') return 'Reembolso en proceso'
   if (order?.status === 'cancelled' || order?.paymentStatus === 'refunded') return 'Compra cancelada'
@@ -368,15 +387,12 @@ export function OrderStatusPage({
                     <span className="eyebrow section-eyebrow">FECHA ESTIMADA DE ENTREGA</span>
                     {order.estimatedDeliveryStart && order.estimatedDeliveryEnd ? (
                       <>
-                        <h2>
-                          Llega entre el{' '}
-                          {new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long' })
-                            .format(new Date(`${order.estimatedDeliveryStart}T12:00:00`))}
-                          {' y el '}
-                          {new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long' })
-                            .format(new Date(`${order.estimatedDeliveryEnd}T12:00:00`))}
-                        </h2>
-                        <p>Te avisaremos cuando tu pedido esté próximo a llegar.</p>
+                        <h2>{formatEstimatedDelivery(order.estimatedDeliveryStart, order.estimatedDeliveryEnd)}</h2>
+                        <p>
+                          {order.estimatedDeliveryStart === order.estimatedDeliveryEnd
+                            ? 'Esta es la fecha estimada para recibir tu pedido.'
+                            : 'Te avisaremos cuando tu pedido esté próximo a llegar.'}
+                        </p>
                       </>
                     ) : (
                       <>
