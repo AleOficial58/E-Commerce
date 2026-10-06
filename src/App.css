@@ -11123,106 +11123,254 @@ html[data-theme='dark'] .order-message-form textarea {
   background-color: transparent;
 }
 
+.order-status-card.has-purchase-celebration,
+.order-status-card.has-delivery-celebration {
+  overflow: hidden;
+  padding: 0;
+}
+
+.order-status-card.has-purchase-celebration {
+  border-color: #e5cdd4;
+  background: #fbf0f1;
+}
+
 .order-purchase-celebration,
 .order-delivery-celebration {
   position: relative;
+  isolation: isolate;
+  min-height: 286px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 190px;
+  align-items: center;
+  gap: 18px;
+  overflow: hidden;
+  padding: 34px clamp(22px, 4vw, 42px);
+  background:
+    radial-gradient(ellipse at 84% 46%, rgb(255 255 255 / 82%), transparent 37%),
+    radial-gradient(ellipse at 4% 100%, rgb(224 175 185 / 20%), transparent 42%),
+    linear-gradient(120deg, #faedef, #f6e7eb 56%, #f3e3e8);
+}
+
+.order-delivery-celebration {
+  background:
+    radial-gradient(ellipse at 84% 46%, rgb(255 255 255 / 82%), transparent 37%),
+    radial-gradient(ellipse at 4% 100%, rgb(173 207 177 / 28%), transparent 42%),
+    linear-gradient(120deg, #edf6ed, #e4f0e5 56%, #f4efe1);
+}
+
+.order-celebration-copy,
+.order-delivery-copy {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  animation: celebration-copy-enter .55s .08s ease-out both;
+}
+
+.order-celebration-status {
+  width: fit-content;
   display: flex;
   align-items: center;
-  gap: 17px;
-  overflow: hidden;
-  margin-top: 20px;
-  padding: 16px 18px;
-  border: 1px solid #e8d9dd;
-  border-radius: 18px;
-  background: linear-gradient(115deg, #fff6f4, #fffdfb 76%);
+  gap: 7px;
+  margin-bottom: 20px;
+  padding: 7px 11px;
+  border: 1px solid rgb(89 127 98 / 16%);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 72%);
+  color: #52755b;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .015em;
 }
 
-.order-purchase-celebration img,
-.order-delivery-celebration img {
-  width: 74px;
-  height: 78px;
-  flex: 0 0 auto;
-  border: 1px solid rgb(148 107 119 / 14%);
-  border-radius: 16px;
-  object-fit: cover;
-  animation: product-arrival .85s cubic-bezier(.2, .8, .25, 1) both;
-}
-
-.order-purchase-celebration > div,
-.order-delivery-celebration > div {
-  min-width: 0;
-  flex: 1;
+.order-celebration-status > span {
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #6b9b76;
+  color: #fff;
+  font-size: 10px;
 }
 
 .order-purchase-celebration .eyebrow,
 .order-delivery-celebration .eyebrow {
-  color: #a06f80;
+  display: block;
+  color: #936e7c;
   font-size: 9px;
-  letter-spacing: .12em;
+  letter-spacing: .13em;
 }
 
-.order-purchase-celebration h2,
-.order-delivery-celebration h2 {
-  margin: 5px 0 0;
-  color: #44363d;
+.order-delivery-celebration .eyebrow {
+  color: #66826b;
+}
+
+.order-purchase-celebration h1,
+.order-delivery-celebration h1 {
+  margin: 8px 0 0;
+  color: #432f3a;
   font-family: var(--font-heading);
-  font-size: 17px;
-  letter-spacing: -.035em;
+  font-size: clamp(32px, 4vw, 45px);
+  letter-spacing: -.065em;
+  line-height: 1.02;
+}
+
+.order-delivery-celebration h1 {
+  color: #304a36;
 }
 
 .order-purchase-celebration p,
 .order-delivery-celebration p {
-  margin: 5px 0 0;
-  color: #81747a;
-  font-size: 10px;
-  line-height: 1.55;
+  max-width: 360px;
+  margin: 11px 0 0;
+  color: #75636c;
+  font-size: 12px;
+  line-height: 1.65;
 }
 
 .order-purchase-celebration button {
-  min-height: 38px;
-  flex: 0 0 auto;
-  padding: 9px 14px;
-  border: 1px solid #7f596d;
-  border-radius: 12px;
-  background: #7f596d;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 20px;
+  margin-top: 20px;
+  padding: 10px 15px 10px 18px;
+  border: 1px solid #714c61;
+  border-radius: 999px;
+  background: #714c61;
+  box-shadow: 0 7px 16px rgb(86 54 70 / 18%);
   color: #fff;
   cursor: pointer;
   font: inherit;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 650;
-  transition: background-color .18s, transform .18s;
+  transition: background-color .18s, box-shadow .18s, transform .18s;
 }
 
 .order-purchase-celebration button:hover {
-  transform: translateY(-1px);
-  background: #684558;
+  transform: translateY(-2px);
+  background: #5f3d51;
+  box-shadow: 0 9px 21px rgb(86 54 70 / 24%);
 }
 
-.order-delivery-celebration {
-  border-color: #d9e8dc;
-  background: linear-gradient(115deg, #f0f8f1, #fffdfb 76%);
+.order-purchase-celebration button > span {
+  font-size: 16px;
+  line-height: 1;
 }
 
-.order-delivery-celebration::after {
+.order-celebration-product {
+  position: relative;
+  z-index: 2;
+  width: 170px;
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  padding: 10px 10px 12px;
+  border: 1px solid rgb(255 255 255 / 82%);
+  border-radius: 23px;
+  background: rgb(255 255 255 / 58%);
+  box-shadow: 0 18px 44px rgb(99 67 80 / 13%), inset 0 1px 0 #fff;
+  text-align: center;
+  transform: rotate(3deg);
+  animation: celebration-product-enter .8s cubic-bezier(.2, .8, .25, 1) both;
+  backdrop-filter: blur(8px);
+}
+
+.order-celebration-product img {
+  width: 148px;
+  height: 148px;
+  border-radius: 17px;
+  background: #fff;
+  object-fit: cover;
+}
+
+.order-celebration-product > span:not(.order-celebration-product-badge) {
+  max-width: 100%;
+  overflow: hidden;
+  color: #503a46;
+  font-size: 10px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.order-celebration-product > small {
+  margin-top: -5px;
+  color: #8a737e;
+  font-size: 9px;
+}
+
+.order-celebration-product-badge {
   position: absolute;
-  top: 8px;
-  right: 15px;
-  color: #81ad8b;
-  content: '✳';
-  font-size: 18px;
-  animation: arrival-sparkle .9s ease-out both;
+  top: -15px;
+  right: -14px;
+  width: 37px;
+  height: 37px;
+  display: grid;
+  place-items: center;
+  border: 3px solid #f8ebee;
+  border-radius: 50%;
+  background: #d798a7;
+  box-shadow: 0 4px 12px rgb(103 62 77 / 20%);
+  color: #fff;
+  font-size: 17px;
+  animation: celebration-sparkle .9s .3s ease-out both;
 }
 
-@keyframes product-arrival {
-  from { opacity: 0; transform: translateY(12px) scale(.88) rotate(-4deg); }
-  70% { opacity: 1; transform: translateY(-2px) scale(1.03) rotate(1deg); }
-  to { opacity: 1; transform: translateY(0) scale(1) rotate(0); }
+.order-delivery-celebration .order-celebration-product-badge {
+  border-color: #eaf3e9;
+  background: #83a98a;
 }
 
-@keyframes arrival-sparkle {
-  from { opacity: 0; transform: scale(.4) rotate(-35deg); }
-  60% { opacity: 1; transform: scale(1.2) rotate(12deg); }
-  to { opacity: .8; transform: scale(1) rotate(0); }
+.order-celebration-confetti {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.order-celebration-confetti span {
+  position: absolute;
+  top: -14px;
+  left: 8%;
+  width: 7px;
+  height: 13px;
+  border-radius: 2px;
+  background: #d99cac;
+  opacity: 0;
+  animation: celebration-confetti-fall 1.25s ease-out both;
+}
+
+.order-celebration-confetti span:nth-child(2) { left: 25%; width: 5px; height: 9px; background: #d7ae70; animation-delay: .12s; }
+.order-celebration-confetti span:nth-child(3) { left: 39%; width: 6px; height: 11px; background: #98b69d; animation-delay: .24s; }
+.order-celebration-confetti span:nth-child(4) { left: 56%; width: 4px; height: 8px; background: #c77c91; animation-delay: .08s; }
+.order-celebration-confetti span:nth-child(5) { left: 71%; width: 7px; height: 12px; background: #d7ae70; animation-delay: .2s; }
+.order-celebration-confetti span:nth-child(6) { left: 84%; width: 5px; height: 10px; background: #98b69d; animation-delay: .32s; }
+.order-celebration-confetti span:nth-child(7) { left: 94%; width: 6px; height: 9px; background: #d99cac; animation-delay: .16s; }
+.order-celebration-confetti span:nth-child(8) { left: 48%; width: 5px; height: 10px; background: #b994b0; animation-delay: .28s; }
+
+@keyframes celebration-copy-enter {
+  from { opacity: 0; transform: translateY(13px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes celebration-product-enter {
+  from { opacity: 0; transform: translateY(28px) rotate(-8deg) scale(.84); }
+  72% { opacity: 1; transform: translateY(-4px) rotate(5deg) scale(1.04); }
+  to { opacity: 1; transform: translateY(0) rotate(3deg) scale(1); }
+}
+
+@keyframes celebration-sparkle {
+  from { opacity: 0; transform: scale(.3) rotate(-35deg); }
+  65% { opacity: 1; transform: scale(1.2) rotate(12deg); }
+  to { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+@keyframes celebration-confetti-fall {
+  0% { opacity: 0; transform: translateY(0) rotate(0); }
+  12% { opacity: .95; }
+  100% { opacity: 0; transform: translateY(235px) rotate(285deg); }
 }
 
 .customer-order-tabs {
@@ -11272,23 +11420,56 @@ html[data-theme='dark'] .order-message-form textarea {
   padding: 32px 20px;
 }
 
+html[data-theme='dark'] .order-status-card.has-purchase-celebration {
+  border-color: #493744;
+  background: #2a2029;
+}
+
 html[data-theme='dark'] .order-purchase-celebration {
-  border-color: #51414b;
-  background: linear-gradient(115deg, #332831, #29232b 76%);
+  background:
+    radial-gradient(ellipse at 84% 46%, rgb(93 65 84 / 42%), transparent 37%),
+    radial-gradient(ellipse at 4% 100%, rgb(145 91 111 / 17%), transparent 42%),
+    linear-gradient(120deg, #30232d, #342630 56%, #30252e);
 }
 
 html[data-theme='dark'] .order-delivery-celebration {
-  border-color: #405143;
-  background: linear-gradient(115deg, #26352b, #29232b 76%);
+  background:
+    radial-gradient(ellipse at 84% 46%, rgb(78 100 80 / 38%), transparent 37%),
+    radial-gradient(ellipse at 4% 100%, rgb(105 140 107 / 18%), transparent 42%),
+    linear-gradient(120deg, #222e26, #263329 56%, #2d3029);
 }
 
-html[data-theme='dark'] .order-purchase-celebration h2,
-html[data-theme='dark'] .order-delivery-celebration h2 {
-  color: #f0e8ec;
+html[data-theme='dark'] .order-celebration-status {
+  border-color: rgb(157 199 165 / 18%);
+  background: rgb(28 40 31 / 74%);
+  color: #c2e0c8;
+}
+
+html[data-theme='dark'] .order-purchase-celebration h1,
+html[data-theme='dark'] .order-delivery-celebration h1 {
+  color: #f4e9ee;
+}
+
+html[data-theme='dark'] .order-delivery-celebration h1 {
+  color: #d8ead9;
 }
 
 html[data-theme='dark'] .order-purchase-celebration p,
 html[data-theme='dark'] .order-delivery-celebration p {
+  color: #cfbdc7;
+}
+
+html[data-theme='dark'] .order-celebration-product {
+  border-color: rgb(255 255 255 / 13%);
+  background: rgb(255 255 255 / 8%);
+  box-shadow: 0 18px 44px rgb(0 0 0 / 20%), inset 0 1px 0 rgb(255 255 255 / 6%);
+}
+
+html[data-theme='dark'] .order-celebration-product > span:not(.order-celebration-product-badge) {
+  color: #f0e8ec;
+}
+
+html[data-theme='dark'] .order-celebration-product > small {
   color: #c2b4bc;
 }
 
@@ -11307,30 +11488,68 @@ html[data-theme='dark'] .customer-order-tabs button.is-active {
 @media (max-width: 600px) {
   .order-purchase-celebration,
   .order-delivery-celebration {
-    display: grid;
-    grid-template-columns: 58px minmax(0, 1fr);
-    align-items: center;
+    min-height: 230px;
+    grid-template-columns: minmax(0, 1fr) 100px;
     gap: 12px;
-    padding: 13px;
+    padding: 24px 17px;
   }
 
-  .order-purchase-celebration img,
-  .order-delivery-celebration img {
-    width: 58px;
-    height: 64px;
-    border-radius: 12px;
+  .order-celebration-status {
+    margin-bottom: 14px;
+    padding: 6px 9px;
+    font-size: 9px;
   }
 
-  .order-purchase-celebration h2,
-  .order-delivery-celebration h2 {
-    font-size: 15px;
+  .order-purchase-celebration h1,
+  .order-delivery-celebration h1 {
+    font-size: clamp(28px, 8vw, 37px);
+  }
+
+  .order-purchase-celebration p,
+  .order-delivery-celebration p {
+    font-size: 10px;
   }
 
   .order-purchase-celebration button {
-    grid-column: 1 / -1;
-    justify-self: stretch;
-    padding: 8px 10px;
-    font-size: 9px;
+    min-height: 38px;
+    gap: 11px;
+    margin-top: 15px;
+    padding: 8px 12px;
+    font-size: 10px;
+  }
+
+  .order-celebration-product {
+    width: 94px;
+    gap: 6px;
+    padding: 7px 7px 9px;
+    border-radius: 16px;
+  }
+
+  .order-celebration-product img {
+    width: 78px;
+    height: 82px;
+    border-radius: 11px;
+  }
+
+  .order-celebration-product > span:not(.order-celebration-product-badge) {
+    font-size: 8px;
+  }
+
+  .order-celebration-product > small {
+    font-size: 8px;
+  }
+
+  .order-celebration-product-badge {
+    top: -12px;
+    right: -11px;
+    width: 31px;
+    height: 31px;
+    font-size: 14px;
+  }
+
+  .order-purchase-celebration .eyebrow,
+  .order-delivery-celebration .eyebrow {
+    font-size: 8px;
   }
 
   .customer-order-tabs {
@@ -11346,9 +11565,10 @@ html[data-theme='dark'] .customer-order-tabs button.is-active {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .order-purchase-celebration img,
-  .order-delivery-celebration img,
-  .order-delivery-celebration::after {
+  .order-celebration-copy,
+  .order-celebration-product,
+  .order-celebration-product-badge,
+  .order-celebration-confetti span {
     animation: none;
   }
 

@@ -172,6 +172,14 @@ export function OrderStatusPage({
     order.status !== 'cancelled' &&
     order.status !== 'cancellation_refund_pending'
   )
+  const showPurchaseCelebration = !detailMode &&
+    status === 'approved' &&
+    order?.paymentStatus === 'approved' &&
+    order.status !== 'cancelled' &&
+    order.status !== 'cancellation_refund_pending'
+  const showDeliveryCelebration = detailMode &&
+    deliveryCelebration &&
+    order?.status === 'delivered'
 
   async function handleReceiptAction(action: 'download' | 'print') {
     if (
@@ -228,47 +236,71 @@ export function OrderStatusPage({
 
         <div className="order-page-grid">
           <div className="order-page-main">
-            <section className={`order-status-card is-${status}`} aria-live="polite">
-              <div className="order-status-heading">
-                <span className="order-status-icon" aria-hidden="true">
-                  {status === 'approved' ? '✓' : status === 'failed' || status === 'error' ? '!' : '…'}
-                </span>
-                <div>
-                  <span className="eyebrow section-eyebrow">ESTADO DE TU COMPRA</span>
-                  <h1>{getStatusTitle(status, order)}</h1>
-                  <p>{getStatusMessage(status, order, message)}</p>
-                </div>
-              </div>
-
-              {!detailMode && status === 'approved' && order?.paymentStatus === 'approved' &&
-                order.status !== 'cancelled' && order.status !== 'cancellation_refund_pending' && (
-                  <section className="order-purchase-celebration" aria-label="Compra confirmada">
-                    {order.items[0] && (
-                      <img
-                        src={order.items[0].image}
-                        alt={order.items[0].name}
-                      />
-                    )}
-                    <div>
-                      <span className="eyebrow section-eyebrow">TU COMPRA YA ESTÁ EN CAMINO</span>
-                      <h2>¡Qué lindo, {order.items[0]?.name ?? 'tu pedido'}!</h2>
-                      <p>El pago está confirmado. Te avisaremos cuando tu pedido avance y llegue a tus manos.</p>
-                    </div>
-                    {onViewPurchases && (
-                      <button type="button" onClick={onViewPurchases}>Ver mis compras</button>
-                    )}
-                  </section>
-                )}
-
-              {detailMode && deliveryCelebration && order?.status === 'delivered' && order.items[0] && (
-                <section className="order-delivery-celebration" aria-live="polite">
-                  <img src={order.items[0].image} alt={order.items[0].name} />
-                  <div>
-                    <span className="eyebrow section-eyebrow">ENTREGA CONFIRMADA</span>
-                    <h2>¡Hola, llegué!</h2>
-                    <p>Tu pedido fue entregado. ¡Esperamos que disfrutes {order.items[0].name}!</p>
+            <section
+              className={`order-status-card is-${status}${
+                showPurchaseCelebration ? ' has-purchase-celebration' : ''
+              }${showDeliveryCelebration ? ' has-delivery-celebration' : ''}`}
+              aria-live="polite"
+            >
+              {showPurchaseCelebration ? (
+                <div className="order-purchase-celebration" aria-label="Compra confirmada">
+                  <div className="order-celebration-confetti" aria-hidden="true">
+                    <span /><span /><span /><span /><span /><span /><span /><span />
                   </div>
-                </section>
+                  <div className="order-celebration-copy">
+                    <span className="order-celebration-status"><span aria-hidden="true">✓</span> Pago acreditado</span>
+                    <span className="eyebrow section-eyebrow">
+                      PEDIDO {order.id.slice(0, 8).toLocaleUpperCase('es-AR')} · CONFIRMADO
+                    </span>
+                    <h1>¡Compra realizada!</h1>
+                    <p>
+                      {order.items.length === 1
+                        ? `${order.items[0].name} ya está en preparación.`
+                        : `Tus ${order.items.length} productos ya están en preparación.`}
+                      {' '}Te vamos a acompañar hasta que lleguen a tus manos.
+                    </p>
+                    {onViewPurchases && (
+                      <button type="button" onClick={onViewPurchases}>
+                        Seguir mi pedido <span aria-hidden="true">→</span>
+                      </button>
+                    )}
+                  </div>
+                  <div className="order-celebration-product">
+                    {order.items[0] && <img src={order.items[0].image} alt={order.items[0].name} />}
+                    <span>{order.items[0]?.name ?? 'Tu pedido'}</span>
+                    {order.items.length > 1 && <small>y {order.items.length - 1} más</small>}
+                    <span className="order-celebration-product-badge" aria-hidden="true">✳</span>
+                  </div>
+                </div>
+              ) : showDeliveryCelebration ? (
+                <div className="order-delivery-celebration" aria-label="Pedido entregado">
+                  <div className="order-celebration-confetti" aria-hidden="true">
+                    <span /><span /><span /><span /><span /><span /><span /><span />
+                  </div>
+                  <div className="order-delivery-copy">
+                    <span className="order-celebration-status"><span aria-hidden="true">✓</span> Entrega confirmada</span>
+                    <span className="eyebrow section-eyebrow">UN PAQUETE MENOS, UNA ALEGRÍA MÁS</span>
+                    <h1>¡Hola, llegué!</h1>
+                    <p>Tu pedido fue entregado. Ojalá disfrutes mucho {order.items[0]?.name ?? 'tus favoritos'}.</p>
+                  </div>
+                  <div className="order-celebration-product">
+                    {order.items[0] && <img src={order.items[0].image} alt={order.items[0].name} />}
+                    <span>{order.items[0]?.name ?? 'Tu pedido'}</span>
+                    {order.items.length > 1 && <small>y {order.items.length - 1} más</small>}
+                    <span className="order-celebration-product-badge" aria-hidden="true">✳</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="order-status-heading">
+                  <span className="order-status-icon" aria-hidden="true">
+                    {status === 'approved' ? '✓' : status === 'failed' || status === 'error' ? '!' : '…'}
+                  </span>
+                  <div>
+                    <span className="eyebrow section-eyebrow">ESTADO DE TU COMPRA</span>
+                    <h1>{getStatusTitle(status, order)}</h1>
+                    <p>{getStatusMessage(status, order, message)}</p>
+                  </div>
+                </div>
               )}
 
               {status === 'approved' && order?.paymentStatus === 'approved' && (
