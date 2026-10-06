@@ -7571,6 +7571,34 @@ html[data-theme='dark'] .order-delivery-estimate p {
   color: #c2b4bc;
 }
 
+html[data-theme='dark'] .order-cancel-area {
+  border-color: #51414b;
+  background: #302831;
+}
+
+html[data-theme='dark'] .order-cancel-area p {
+  color: #d0c2c9;
+}
+
+html[data-theme='dark'] .order-cancel-button {
+  border-color: #76596a;
+  background: #3a2e38;
+  color: #efcbd8;
+}
+
+html[data-theme='dark'] .order-cancel-button:hover:not(:disabled) {
+  border-color: #a77d91;
+  background: #493744;
+}
+
+html[data-theme='dark'] .order-cancel-error {
+  color: #f0aaa5;
+}
+
+html[data-theme='dark'] .order-cancel-success {
+  color: #9ed2ac;
+}
+
 html[data-theme='dark'] .order-timeline li {
   color: #c2b4bc;
 }

@@ -49,6 +49,17 @@ const genericShipmentSteps = [
   { status: 'delivered', label: 'Entregada' },
 ]
 
+function getOrderFulfillmentStage(order: CustomerOrderStatus): string {
+  if (order.shipmentStage) return order.shipmentStage
+  if (order.status === 'new') return 'new'
+  if (order.status === 'preparing') return 'preparing'
+  if (order.status === 'shipped') {
+    return order.shipmentType === 'international' ? 'international_transit' : 'local_transit'
+  }
+  if (order.status === 'delivered') return 'delivered'
+  return ''
+}
+
 function getStatusTitle(status: PaymentReturnStatus, order: CustomerOrderStatus | null): string {
   if (order?.status === 'cancellation_refund_pending') return 'Reembolso en proceso'
   if (order?.status === 'cancelled' || order?.paymentStatus === 'refunded') return 'Compra cancelada'
@@ -57,9 +68,18 @@ function getStatusTitle(status: PaymentReturnStatus, order: CustomerOrderStatus 
   if (status === 'failed') return 'El pago no se completó'
   if (status === 'pending') return 'El pago está pendiente'
   if (status === 'review') return 'Tu compra está en revisión'
-  if (order?.status === 'preparing') return 'Estamos preparando tu compra'
-  if (order?.status === 'shipped') return 'Tu compra está en camino'
-  if (order?.status === 'delivered') return 'Compra entregada'
+  const stage = order ? getOrderFulfillmentStage(order) : ''
+  if (stage === 'delivered') return '¡Tu pedido llegó!'
+  if (stage === 'out_for_delivery') return '¡Tu pedido llega hoy!'
+  if (stage === 'preparing') return 'Estamos preparando tu pedido'
+  if (['international_transit', 'customs', 'in_argentina', 'local_transit'].includes(stage)) {
+    return stage === 'customs'
+      ? 'Tu pedido está en aduana'
+      : stage === 'in_argentina'
+        ? 'Tu pedido llegó a Argentina'
+        : 'Tu pedido está en camino'
+  }
+  if (order?.status === 'new') return 'Pedido confirmado'
   return '¡Compra exitosa!'
 }
 
@@ -79,9 +99,15 @@ function getStatusMessage(status: PaymentReturnStatus, order: CustomerOrderStatu
   if (status === 'review') {
     return message || 'El pago fue aprobado. Estamos revisando la disponibilidad antes de continuar con la preparación.'
   }
-  if (order?.status === 'preparing') return 'Tu pago está confirmado y estamos preparando los productos.'
-  if (order?.status === 'shipped') return 'Tu pedido ya fue despachado. El estado se actualizará cuando esté entregado.'
-  if (order?.status === 'delivered') return 'El pedido figura como entregado. ¡Gracias por comprar en Lúmina!'
+  const stage = order ? getOrderFulfillmentStage(order) : ''
+  if (stage === 'preparing') return 'Tu pedido está en preparación. Te avisaremos cuando esté listo para el despacho.'
+  if (stage === 'out_for_delivery') return 'El correo está realizando la entrega. Mantenete atento a la dirección indicada.'
+  if (stage === 'international_transit') return 'Tu pedido está viajando desde el exterior. Te iremos contando cada novedad.'
+  if (stage === 'customs') return 'Tu pedido está pasando por aduana antes de continuar su recorrido.'
+  if (stage === 'in_argentina') return 'Tu pedido ya llegó a Argentina y seguirá hacia tu domicilio.'
+  if (stage === 'local_transit') return 'Tu pedido ya está en camino hacia tu domicilio.'
+  if (stage === 'delivered') return 'El pedido figura como entregado. ¡Gracias por comprar en Lúmina!'
+  if (order?.status === 'new') return 'Recibimos tu pedido y el pago está acreditado. Pronto comenzaremos a prepararlo.'
   return 'Mercado Pago confirmó el pago y recibimos tu pedido.'
 }
 
@@ -114,13 +140,7 @@ export function OrderStatusPage({
       : genericShipmentSteps
   const activeStep = (() => {
     if (status !== 'approved' || !order) return -1
-    const stage = order.shipmentStage ?? (
-      order.status === 'new' ? 'new'
-        : order.status === 'preparing' ? 'preparing'
-          : order.status === 'shipped'
-            ? order.shipmentType === 'international' ? 'international_transit' : 'local_transit'
-            : order.status === 'delivered' ? 'delivered' : ''
-    )
+    const stage = getOrderFulfillmentStage(order)
     return fulfillmentSteps.findIndex((step) => step.status === stage)
   })()
   const paymentLabel = order?.paymentStatus === 'refunded'
@@ -223,7 +243,7 @@ export function OrderStatusPage({
           lúmina<span aria-hidden="true">✳</span>
         </button>
         <div className="order-page-header-actions">
-          <span>{detailMode ? 'Detalle de tu compra' : 'Estado de tu compra'}</span>
+          <span>{detailMode ? 'Seguimiento de tu pedido' : 'Estado de tu compra'}</span>
           <ThemeToggleButton />
         </div>
       </header>
@@ -296,7 +316,9 @@ export function OrderStatusPage({
                     {status === 'approved' ? '✓' : status === 'failed' || status === 'error' ? '!' : '…'}
                   </span>
                   <div>
-                    <span className="eyebrow section-eyebrow">ESTADO DE TU COMPRA</span>
+                    <span className="eyebrow section-eyebrow">
+                      {detailMode ? 'SEGUIMIENTO DE TU PEDIDO' : 'ESTADO DE TU COMPRA'}
+                    </span>
                     <h1>{getStatusTitle(status, order)}</h1>
                     <p>{getStatusMessage(status, order, message)}</p>
                   </div>
@@ -305,27 +327,6 @@ export function OrderStatusPage({
 
               {status === 'approved' && order?.paymentStatus === 'approved' && (
                 <>
-                  <section className="order-delivery-estimate" aria-label="Estimación de entrega">
-                    <span className="eyebrow section-eyebrow">ESTIMACIÓN DE ENTREGA</span>
-                    {order?.estimatedDeliveryStart && order.estimatedDeliveryEnd ? (
-                      <>
-                        <h2>
-                          Llega entre el{' '}
-                          {new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long' })
-                            .format(new Date(`${order.estimatedDeliveryStart}T12:00:00`))}
-                          {' y el '}
-                          {new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long' })
-                            .format(new Date(`${order.estimatedDeliveryEnd}T12:00:00`))}
-                        </h2>
-                        <p>El día de la entrega te avisaremos en qué horario vamos a pasar por tu domicilio.</p>
-                      </>
-                    ) : (
-                      <>
-                        <h2>Estamos preparando la estimación</h2>
-                        <p>El plazo aparecerá acá cuando el equipo confirme el tipo de envío y las fechas.</p>
-                      </>
-                    )}
-                  </section>
                   <ol
                     className={`order-timeline ${
                       order?.shipmentType === 'international'
@@ -363,6 +364,27 @@ export function OrderStatusPage({
                       )
                     })}
                   </ol>
+                  <section className="order-delivery-estimate" aria-label="Estimación de entrega">
+                    <span className="eyebrow section-eyebrow">FECHA ESTIMADA DE ENTREGA</span>
+                    {order.estimatedDeliveryStart && order.estimatedDeliveryEnd ? (
+                      <>
+                        <h2>
+                          Llega entre el{' '}
+                          {new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long' })
+                            .format(new Date(`${order.estimatedDeliveryStart}T12:00:00`))}
+                          {' y el '}
+                          {new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long' })
+                            .format(new Date(`${order.estimatedDeliveryEnd}T12:00:00`))}
+                        </h2>
+                        <p>Te avisaremos cuando tu pedido esté próximo a llegar.</p>
+                      </>
+                    ) : (
+                      <>
+                        <h2>Estamos confirmando la fecha</h2>
+                        <p>El plazo aparecerá acá cuando el equipo confirme el tipo de envío y las fechas.</p>
+                      </>
+                    )}
+                  </section>
                 </>
               )}
 
