@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { User } from 'firebase/auth'
 import type { CustomerOrderStatus, OrderMessage } from '../lib/commerceApi'
+import { formatEstimatedDelivery } from '../lib/deliveryEstimate'
 import { ThemeToggleButton } from '../lib/theme'
 import { OrderMessages } from './OrderMessages'
 
@@ -58,25 +59,6 @@ function getOrderFulfillmentStage(order: CustomerOrderStatus): string {
   }
   if (order.status === 'delivered') return 'delivered'
   return ''
-}
-
-function getLocalDateInputValue(date = new Date()): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function formatEstimatedDelivery(start: string, end: string): string {
-  const dateFormatter = new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long' })
-  if (start === end) {
-    return start === getLocalDateInputValue()
-      ? 'Llega hoy'
-      : `Llega el ${dateFormatter.format(new Date(`${start}T12:00:00`))}`
-  }
-  return `Llega entre el ${dateFormatter.format(new Date(`${start}T12:00:00`))} y el ${
-    dateFormatter.format(new Date(`${end}T12:00:00`))
-  }`
 }
 
 function getStatusTitle(status: PaymentReturnStatus, order: CustomerOrderStatus | null): string {

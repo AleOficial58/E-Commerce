@@ -8492,6 +8492,7 @@ html[data-theme='dark'] {
 
 .admin-main > .admin-orders,
 .admin-main > .admin-products,
+.admin-main > .admin-sales-report,
 .admin-main > .admin-review-media,
 .admin-main > .admin-access {
   max-width: 1400px;
@@ -11228,6 +11229,178 @@ html[data-theme='dark'] .order-message-form textarea {
   letter-spacing: .13em;
 }
 
+.admin-sales-report {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0;
+}
+
+.admin-sales-report-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: 12px;
+  margin: 20px 0 8px;
+  padding: 17px;
+  border: 1px solid var(--admin-line);
+  border-radius: 18px;
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow);
+}
+
+.admin-sales-report-filters label {
+  display: grid;
+  gap: 7px;
+  color: var(--admin-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.admin-sales-report-filters input {
+  min-height: 42px;
+  padding: 8px 11px;
+  border: 1px solid var(--admin-line);
+  border-radius: 11px;
+  color: var(--admin-ink);
+  background: var(--admin-surface);
+}
+
+.admin-sales-report-filters button {
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.admin-sales-report-note,
+.admin-sales-report-footnote,
+.admin-sales-report-period {
+  color: var(--admin-muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.admin-sales-report-error {
+  padding: 12px 14px;
+  border: 1px solid #e6bfc3;
+  border-radius: 12px;
+  color: #843b46;
+  background: #fff3f3;
+}
+
+.admin-sales-report-period {
+  margin: 20px 0 10px;
+  font-weight: 700;
+}
+
+.admin-sales-report-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-sales-report-metrics article {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 17px;
+  border: 1px solid var(--admin-line);
+  border-radius: 18px;
+  color: var(--admin-muted);
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow);
+  font-size: 10px;
+}
+
+.admin-sales-report-metrics strong {
+  overflow-wrap: anywhere;
+  color: var(--admin-ink);
+  font-family: var(--font-heading);
+  font-size: clamp(18px, 2vw, 25px);
+  letter-spacing: -.04em;
+}
+
+.admin-sales-report-metrics small {
+  color: var(--admin-muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.admin-sales-report-products {
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid var(--admin-line);
+  border-radius: 18px;
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow);
+}
+
+.admin-sales-report-products h4 {
+  margin: 0 0 12px;
+  color: var(--admin-ink);
+  font-family: var(--font-heading);
+  font-size: 14px;
+}
+
+.admin-sales-report-products ol {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-sales-report-products li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 16px;
+  align-items: center;
+  padding: 11px 0;
+  border-top: 1px solid var(--admin-line);
+  color: var(--admin-muted);
+  font-size: 11px;
+}
+
+.admin-sales-report-products li strong {
+  color: var(--admin-ink);
+}
+
+.admin-sales-report-products > p {
+  margin: 0;
+  color: var(--admin-muted);
+  font-size: 11px;
+}
+
+.admin-sales-report-footnote {
+  margin: 12px 0 0;
+}
+
+@media (max-width: 760px) {
+  .admin-sales-report-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-sales-report-filters button {
+    grid-column: 1 / -1;
+  }
+
+  .admin-sales-report-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .admin-sales-report-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-sales-report-products li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .admin-sales-report-products li strong {
+    grid-column: 2;
+  }
+}
+
 .order-delivery-celebration .eyebrow {
   color: #66826b;
 }
@@ -11668,5 +11841,235 @@ html[data-theme='dark'] .customer-order-tabs button.is-active {
   .order-purchase-celebration button,
   .customer-order-tabs button {
     transition: none;
+  }
+}
+
+.admin-dashboard {
+  background:
+    radial-gradient(ellipse at 8% 0, color-mix(in srgb, var(--admin-accent-soft) 38%, transparent), transparent 34%),
+    var(--admin-page);
+}
+
+.admin-dashboard-header {
+  border-bottom-color: color-mix(in srgb, var(--admin-line) 75%, transparent);
+  background:
+    radial-gradient(ellipse at 78% 0, color-mix(in srgb, var(--admin-accent-soft) 54%, transparent), transparent 38%),
+    var(--admin-surface);
+}
+
+.admin-sidebar {
+  background:
+    linear-gradient(180deg, var(--admin-surface), color-mix(in srgb, var(--admin-surface-muted) 72%, var(--admin-surface)));
+}
+
+.admin-tabs button,
+.admin-choice-group button,
+.admin-header-actions .theme-toggle,
+.admin-store-link,
+.admin-exit-button {
+  border-radius: 13px;
+}
+
+.admin-tabs button {
+  transition: color .18s, background-color .18s, transform .18s;
+}
+
+.admin-tabs button:hover {
+  transform: translateX(2px);
+  color: var(--admin-accent);
+  background: var(--admin-accent-soft);
+}
+
+.admin-main {
+  background:
+    radial-gradient(ellipse at 96% 0, color-mix(in srgb, var(--admin-accent-soft) 22%, transparent), transparent 30%),
+    var(--admin-page);
+}
+
+.admin-main-topline {
+  align-items: center;
+  padding: 0 0 22px;
+}
+
+.admin-main-topline h2 {
+  font-size: clamp(29px, 3vw, 38px);
+  letter-spacing: -.055em;
+}
+
+.admin-main-kicker {
+  letter-spacing: .18em;
+}
+
+.admin-main .admin-order-card {
+  border-radius: 26px;
+  box-shadow: 0 16px 38px rgb(36 32 35 / 7%), inset 0 1px 0 rgb(255 255 255 / 60%);
+  transition: box-shadow .2s, transform .2s, border-color .2s;
+}
+
+.admin-main .admin-order-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--admin-accent) 25%, var(--admin-line));
+  box-shadow: 0 20px 42px rgb(36 32 35 / 10%), inset 0 1px 0 rgb(255 255 255 / 60%);
+}
+
+.admin-main .admin-order-heading {
+  padding-bottom: 16px;
+}
+
+.admin-main .admin-order-customer {
+  margin-top: 13px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--admin-line) 74%, transparent);
+  border-radius: 17px;
+  background: color-mix(in srgb, var(--admin-surface-muted) 74%, transparent);
+}
+
+.admin-main .admin-order-customer > strong {
+  font-size: 14px;
+}
+
+.admin-main .admin-order-items {
+  gap: 0;
+  padding: 12px 4px;
+}
+
+.admin-main .admin-order-items > div {
+  padding: 8px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--admin-line) 72%, transparent);
+}
+
+.admin-main .admin-order-items > div:last-child {
+  border-bottom: 0;
+}
+
+.admin-main .admin-order-total {
+  margin-top: 5px;
+  padding: 15px 16px;
+  border: 1px solid color-mix(in srgb, var(--admin-accent) 16%, var(--admin-line));
+  border-radius: 17px;
+  background: color-mix(in srgb, var(--admin-accent-soft) 48%, var(--admin-surface));
+}
+
+.admin-main .admin-order-total > strong {
+  font-size: 18px;
+}
+
+.admin-main .admin-shipment-editor {
+  margin-top: 14px;
+  padding: 12px 18px;
+  border: 1px solid var(--admin-line);
+  border-radius: 22px;
+  background:
+    radial-gradient(ellipse at 100% 0, color-mix(in srgb, var(--admin-accent-soft) 76%, transparent), transparent 48%),
+    var(--admin-surface-muted);
+  transition: border-color .18s, box-shadow .18s;
+}
+
+.admin-main .admin-shipment-editor[open] {
+  border-color: color-mix(in srgb, var(--admin-accent) 30%, var(--admin-line));
+  box-shadow: 0 12px 28px rgb(36 32 35 / 5%);
+}
+
+.admin-main .admin-shipment-editor > summary {
+  min-height: 44px;
+  padding: 2px 4px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.admin-main .admin-shipment-editor form {
+  gap: 15px;
+  margin: 10px 0 5px;
+}
+
+.admin-main .admin-shipment-editor label {
+  gap: 8px;
+  font-size: 11px;
+}
+
+.admin-main .admin-shipment-editor input,
+.admin-main .admin-shipment-editor select {
+  min-height: 46px;
+  padding: 9px 13px;
+  border-radius: 14px;
+  box-shadow: inset 0 1px 2px rgb(31 24 29 / 3%);
+  font-size: 12px;
+}
+
+.admin-main .admin-shipment-editor input[name='shipmentStageDetail'],
+.admin-main .admin-shipment-editor input[name='trackingUrl'] {
+  border-radius: 14px;
+}
+
+.admin-main .admin-shipment-save,
+.admin-main .admin-order-action {
+  min-height: 44px;
+  padding-inline: 17px;
+  border-radius: 999px;
+}
+
+.admin-main .admin-order-action {
+  margin-top: 14px;
+}
+
+.admin-main .admin-order-messages {
+  margin-top: 12px;
+  padding: 5px 16px;
+  border: 1px solid var(--admin-line);
+  border-radius: 18px;
+  background: var(--admin-surface-muted);
+}
+
+.admin-main .admin-review-entry,
+.admin-main .admin-review-media-card,
+.admin-main .admin-product-form,
+.admin-main .admin-access-form,
+.admin-main .admin-self-revoke {
+  border-radius: 22px;
+  box-shadow: 0 14px 34px rgb(36 32 35 / 6%);
+}
+
+.admin-main input,
+.admin-main select,
+.admin-main textarea {
+  border-radius: 13px;
+}
+
+html[data-theme='dark'] .admin-main .admin-order-customer {
+  border-color: var(--admin-line);
+  background: color-mix(in srgb, var(--admin-surface-muted) 80%, transparent);
+}
+
+html[data-theme='dark'] .admin-main .admin-order-total {
+  border-color: color-mix(in srgb, var(--admin-accent) 28%, var(--admin-line));
+  background: color-mix(in srgb, var(--admin-accent-soft) 78%, var(--admin-surface));
+}
+
+@media (max-width: 560px) {
+  .admin-main-topline {
+    align-items: flex-start;
+    padding-bottom: 16px;
+  }
+
+  .admin-main .admin-order-card {
+    border-radius: 23px;
+  }
+
+  .admin-main .admin-shipment-editor {
+    padding: 10px 13px;
+    border-radius: 19px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-tabs button,
+  .admin-main .admin-order-card,
+  .admin-main .admin-shipment-editor {
+    transition: none;
+  }
+
+  .admin-tabs button:hover,
+  .admin-main .admin-order-card:hover {
+    transform: none;
   }
 }

@@ -51,11 +51,13 @@ import {
 } from './lib/reviewsApi'
 import { loadAdminWishlistCounts, uploadAdminProductImage } from './lib/adminProductApi'
 import { AuthActionPage } from './components/AuthActionPage'
+import { AdminSalesReport } from './components/AdminSalesReport'
 import { CustomerOrdersPage } from './components/CustomerOrdersPage'
 import { OrderStatusPage } from './components/OrderStatusPage'
 import { OrderMessages } from './components/OrderMessages'
 import { NotificationCenter } from './components/NotificationCenter'
 import { useNotificationStore } from './lib/notificationStore'
+import { getArgentinaDateInputValue } from './lib/deliveryEstimate'
 import { ThemeToggleButton } from './lib/theme'
 import './App.css'
 
@@ -71,6 +73,7 @@ type IconName =
   | 'arrow'
   | 'bag'
   | 'box'
+  | 'chart'
   | 'check'
   | 'close'
   | 'heart'
@@ -106,6 +109,8 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
       return <svg {...common}><path d="m3 7 9-4 9 4v10l-9 4-9-4V7Z" /><path d="m3 7 9 4 9-4M12 11v10M7.5 5l9 4" /></svg>
     case 'check':
       return <svg {...common}><path d="m5 12 4 4L19 6" /></svg>
+    case 'chart':
+      return <svg {...common}><path d="M4 19V5M4 19h16M8 15l3-4 3 2 5-7" /><path d="M16 6h3v3" /></svg>
     case 'close':
       return <svg {...common}><path d="m6 6 12 12M18 6 6 18" /></svg>
     case 'heart':
@@ -279,13 +284,6 @@ const emptyCustomerProfile: CustomerProfile = {
   city: '',
   province: '',
   postalCode: '',
-}
-
-function getLocalDateInputValue(date = new Date()): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
 }
 
 function getPaymentReturnParams(): { orderId: string; paymentId: string } {
@@ -1119,7 +1117,7 @@ function Storefront() {
   const [adminAccessStatus, setAdminAccessStatus] = useState<'checking' | 'admin' | 'not-admin' | 'error'>('checking')
   const [adminAccessError, setAdminAccessError] = useState('')
   const [adminOpen, setAdminOpen] = useState(() => window.location.pathname === '/admin')
-  const [adminTab, setAdminTab] = useState<'orders' | 'products' | 'categories' | 'reviews' | 'access'>('orders')
+  const [adminTab, setAdminTab] = useState<'orders' | 'sales' | 'products' | 'categories' | 'reviews' | 'access'>('orders')
   const [adminAccessibility, setAdminAccessibility] = useState(readAdminAccessibilitySettings)
   const [adminOrders, setAdminOrders] = useState<AdminOrder[]>([])
   const [adminLoading, setAdminLoading] = useState(false)
@@ -2976,7 +2974,7 @@ function Storefront() {
     const rangeStart = String(formData.get('estimatedDeliveryStart') ?? '')
     const rangeEnd = String(formData.get('estimatedDeliveryEnd') ?? '')
     const estimatedDeliveryStart = estimateMode === 'today'
-      ? getLocalDateInputValue()
+      ? getArgentinaDateInputValue()
       : estimateMode === 'date'
         ? exactDate
         : rangeStart
@@ -3926,6 +3924,7 @@ function Storefront() {
                   <span className="admin-sidebar-label">TIENDA</span>
                   <nav className="admin-tabs" aria-label="Secciones de administración">
                     <button aria-current={adminTab === 'orders' ? 'page' : undefined} className={adminTab === 'orders' ? 'active' : ''} onClick={() => setAdminTab('orders')}><Icon name="bag" size={17} /> <span>Pedidos</span><b>{adminOrders.length}</b></button>
+                    <button aria-current={adminTab === 'sales' ? 'page' : undefined} className={adminTab === 'sales' ? 'active' : ''} onClick={() => { setAdminError(''); setAdminTab('sales') }}><Icon name="chart" size={17} /> <span>Reportes</span></button>
                     <button aria-current={adminTab === 'reviews' ? 'page' : undefined} className={adminTab === 'reviews' ? 'active' : ''} onClick={() => { setAdminError(''); setAdminReviewMediaLoading(true); setAdminProductReviewsLoading(true); setAdminReviewMediaCursor(''); setAdminProductReviewsCursor(''); setAdminReviewMediaRefresh((current) => current + 1); setAdminTab('reviews') }}><Icon name="sparkles" size={17} /> <span>Opiniones</span><b>{adminProductReviews.length}</b></button>
                     <button aria-current={adminTab === 'products' ? 'page' : undefined} className={adminTab === 'products' ? 'active' : ''} onClick={() => setAdminTab('products')}><Icon name="box" size={17} /> <span>Productos</span><b>{catalog.filter((product) => product.active !== false).length}</b></button>
                     <button aria-current={adminTab === 'categories' ? 'page' : undefined} className={adminTab === 'categories' ? 'active' : ''} onClick={() => { setAdminCategoryError(''); setAdminTab('categories') }}><Icon name="box" size={17} /> <span>Categorías</span><b>{categories.length - 1}</b></button>
@@ -3976,13 +3975,15 @@ function Storefront() {
               <main className="admin-main" id="admin-main" tabIndex={-1}>
                 <div className="admin-main-topline">
                   <div>
-                    <span className="admin-main-kicker">LÚMINA · {adminTab === 'orders' ? 'OPERACIONES' : adminTab === 'reviews' ? 'COMUNIDAD' : adminTab === 'products' || adminTab === 'categories' ? 'CATÁLOGO' : 'EQUIPO'}</span>
-                    <h2>{adminTab === 'orders' ? 'Pedidos' : adminTab === 'reviews' ? 'Opiniones' : adminTab === 'products' ? 'Productos' : adminTab === 'categories' ? 'Categorías' : 'Accesos'}</h2>
+                    <span className="admin-main-kicker">LÚMINA · {adminTab === 'orders' ? 'OPERACIONES' : adminTab === 'sales' ? 'COMERCIAL' : adminTab === 'reviews' ? 'COMUNIDAD' : adminTab === 'products' || adminTab === 'categories' ? 'CATÁLOGO' : 'EQUIPO'}</span>
+                    <h2>{adminTab === 'orders' ? 'Pedidos' : adminTab === 'sales' ? 'Reportes de ventas' : adminTab === 'reviews' ? 'Opiniones' : adminTab === 'products' ? 'Productos' : adminTab === 'categories' ? 'Categorías' : 'Accesos'}</h2>
                   </div>
                   <span className="admin-main-account"><Icon name="user" size={16} /> {user.email ?? 'Administrador'}</span>
                 </div>
                 {adminError && <p className="profile-form-error admin-error" role="alert">{adminError}</p>}
-                {adminTab === 'orders' ? (
+                {adminTab === 'sales' ? (
+                  <AdminSalesReport user={user} />
+                ) : adminTab === 'orders' ? (
               <section className="admin-orders">
                 <div className="admin-section-heading">
                   <div><h3>Ventas recientes</h3><p>Se actualiza automáticamente cada 12 segundos mientras el panel está abierto.</p></div>
@@ -4026,7 +4027,7 @@ function Storefront() {
                               order.estimatedDeliveryStart === order.estimatedDeliveryEnd,
                             )
                             const defaultEstimateMode: AdminDeliveryEstimateMode = hasSingleDate
-                              ? order.estimatedDeliveryStart === getLocalDateInputValue()
+                              ? order.estimatedDeliveryStart === getArgentinaDateInputValue()
                                 ? 'today'
                                 : 'date'
                               : 'range'
@@ -4076,7 +4077,7 @@ function Storefront() {
                                   </>
                                 ) : estimateMode === 'date' ? (
                                   <label className="admin-shipment-full">
-                                    Día de entrega
+                                    Día estimado de entrega
                                     <input
                                       name="estimatedDeliveryDate"
                                       type="date"
@@ -4088,7 +4089,8 @@ function Storefront() {
                                   <p className="admin-shipment-estimate-hint">
                                     La fecha se guardará como hoy ({new Intl.DateTimeFormat('es-AR', {
                                       dateStyle: 'long',
-                                    }).format(new Date(`${getLocalDateInputValue()}T12:00:00`))}).
+                                      timeZone: 'UTC',
+                                    }).format(new Date(`${getArgentinaDateInputValue()}T12:00:00Z`))}).
                                   </p>
                                 )}
                               </>

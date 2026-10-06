@@ -1,4 +1,5 @@
 import type { User } from 'firebase/auth'
+import type { SalesReportSummary } from './salesReporting'
 
 export type ShipmentType = 'local' | 'international'
 export type ShipmentStage =
@@ -397,6 +398,53 @@ export async function loadAdminOrders(user: User): Promise<AdminOrder[]> {
   const result = await apiRequest<{ orders: AdminOrder[] }>(user, '/api/admin/orders')
   if (!Array.isArray(result.orders)) throw new Error('El servidor devolvió una lista de pedidos no válida.')
   return result.orders
+}
+
+/**
+ * Loads a complete server-side sales summary for an inclusive local-calendar
+ * date range. The API validates the dates and enforces Admin authorization.
+ */
+export async function loadAdminSalesReport(
+  user: User,
+  from: string,
+  to: string,
+): Promise<SalesReportSummary> {
+  const parameters = new URLSearchParams({ from, to })
+  const result = await apiRequest<{ report: SalesReportSummary }>(
+    user,
+    `/api/admin/sales-report?${parameters.toString()}`,
+  )
+  const report = result.report
+  if (
+    !report ||
+    report.currency !== 'ARS' ||
+    !Number.isInteger(report.orderCount) || report.orderCount < 0 ||
+    !Number.isInteger(report.unitsSold) || report.unitsSold < 0 ||
+    !Array.isArray(report.topProducts) ||
+    ![
+      report.approvedOrderCount,
+      report.pendingOrderCount,
+      report.refundedOrderCount,
+      report.otherOrderCount,
+    ].every((count) => Number.isInteger(count) && count >= 0) ||
+    [
+      report.grossSales,
+      report.refunds,
+      report.netSales,
+      report.pendingAmount,
+    ].some((amount) => !Number.isFinite(amount) || amount < 0) ||
+    report.orderCount !== report.approvedOrderCount + report.pendingOrderCount +
+      report.refundedOrderCount + report.otherOrderCount ||
+    !report.topProducts.every((product) =>
+      typeof product.id === 'string' &&
+      typeof product.name === 'string' &&
+      Number.isInteger(product.quantity) && product.quantity > 0 &&
+      Number.isFinite(product.sales) && product.sales >= 0,
+    )
+  ) {
+    throw new Error('El servidor devolvió un reporte de ventas no válido.')
+  }
+  return report
 }
 
 export function updateAdminOrderStatus(

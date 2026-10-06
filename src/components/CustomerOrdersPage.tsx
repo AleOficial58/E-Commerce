@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { CustomerOrderSummary } from '../lib/commerceApi'
+import { formatEstimatedDelivery } from '../lib/deliveryEstimate'
 import { ThemeToggleButton } from '../lib/theme'
 
 type Props = {
@@ -31,20 +32,6 @@ function getOrderGroup(order: CustomerOrderSummary): OrderGroup {
   if (order.paymentStatus !== 'approved') return 'pending'
   if (order.status === 'delivered') return 'delivered'
   return 'active'
-}
-
-function formatEstimatedDelivery(start: string, end: string): string {
-  const dateFormatter = new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long' })
-  if (start === end) {
-    const today = new Date()
-    const localToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-    return start === localToday
-      ? 'Llega hoy'
-      : `Llega el ${dateFormatter.format(new Date(`${start}T12:00:00`))}`
-  }
-  return `Llega entre el ${dateFormatter.format(new Date(`${start}T12:00:00`))} y el ${
-    dateFormatter.format(new Date(`${end}T12:00:00`))
-  }`
 }
 
 function getStatusLabel(order: CustomerOrderSummary): string {

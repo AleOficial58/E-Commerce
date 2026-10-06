@@ -10,6 +10,7 @@ import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app'
 import { getAuth, type DecodedIdToken, type UserRecord } from 'firebase-admin/auth'
 import { FieldPath, FieldValue, Timestamp, getFirestore, type DocumentReference } from 'firebase-admin/firestore'
 import { MAX_ORDER_QUANTITY, products as demoProducts } from '../src/data/products.js'
+import { getSalesReport, SalesReportError } from './salesReporting.js'
 import {
   EmailDeliveryError,
   getActionCodeSettings,
@@ -185,6 +186,14 @@ const adminWishlistCountsLimiter = rateLimit({
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   message: { error: 'Hubo muchas consultas de favoritos. Esperá unos minutos antes de volver a intentarlo.' },
+})
+
+const adminSalesReportLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Se solicitaron muchos reportes. Esperá unos minutos antes de volver a consultar.' },
 })
 
 function requireFirebaseServices(_request: Request, _response: Response, next: NextFunction) {
@@ -2906,6 +2915,30 @@ app.get(
       response.json({
         orders: snapshot.docs.map((order) => ({ id: order.id, ...order.data() })),
       })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
+
+app.get(
+  '/api/admin/sales-report',
+  requireFirebaseServices,
+  requireUser,
+  requireAdmin,
+  adminSalesReportLimiter,
+  async (request, response, next) => {
+    try {
+      try {
+        const report = await getSalesReport(firestore, request.query.from, request.query.to)
+        response.set('Cache-Control', 'private, no-store')
+        response.json({ report })
+      } catch (error) {
+        if (error instanceof SalesReportError) {
+          throw new ApiError(error.message, error.status)
+        }
+        throw error
+      }
     } catch (error) {
       next(error)
     }

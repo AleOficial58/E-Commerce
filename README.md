@@ -2,6 +2,111 @@
 
 Primera base de una tienda de accesorios, bijouterie y complementos. El proyecto usa React + TypeScript + Vite y Firebase Authentication/Firestore como backend administrado.
 
+## Sistema y arquitectura
+
+Lúmina es una tienda de un único vendedor con catálogo, cuentas de clientes, inventario, checkout de Mercado Pago, seguimiento de pedidos y administración. El comprobante PDF descargable es **no fiscal**: no sustituye una factura ni se conecta a un sistema de facturación oficial.
+
+La solución combina una aplicación React con una API Express pequeña. La API concentra acciones que requieren credenciales privadas o validaciones confiables (checkout, webhooks, cambios de pedidos, informes, correo, moderación y administración). Para datos de usuario no privilegiados, React usa Firebase Authentication y Firestore directamente, siempre limitado por las reglas desplegadas.
+
+### Mapa del sistema
+
+```text
+Cliente o administrador
+  ├─ React + TypeScript (Vite)
+  │    ├─ Firebase Authentication ── inicio de sesión e identidad
+  │    ├─ Firestore del navegador ── perfil, catálogo público, favoritos y bolso
+  │    └─ API Express (/api) ─────── operaciones protegidas y validación de negocio
+  │                                  ├─ Firebase Admin ── pedidos, permisos e inventario
+  │                                  ├─ Mercado Pago ──── checkout, conciliación y reembolsos
+  │                                  ├─ Cloudinary ────── imágenes y adjuntos moderados
+  │                                  └─ SMTP/Brevo ────── verificación y recuperación
+  └─ Render sirve la SPA y la API en el mismo origen
+```
+
+La aplicación obtiene un ID token de Firebase y lo envía como `Authorization: Bearer` en las solicitudes protegidas. Express verifica el token y vuelve a comprobar el rol Admin en Firestore; no confía en un rol enviado por el navegador. Las llamadas directas del navegador a Firestore quedan restringidas por [`firestore.rules`](./firestore.rules). Mercado Pago confirma pagos mediante webhook firmado y consulta servidor-a-servidor, no mediante el parámetro de retorno del navegador.
+
+### Módulos y flujo de datos
+
+| Módulo | Responsabilidad | Archivos principales | Dependencias y flujo |
+| --- | --- | --- | --- |
+| Tienda y catálogo | Navegación, búsqueda, fichas, categorías, bolso y favoritos. | [`src/App.tsx`](./src/App.tsx), [`src/data/products.ts`](./src/data/products.ts), [`src/lib/userStore.ts`](./src/lib/userStore.ts) | React consume el catálogo público de Firestore y los productos de demostración; perfiles, bolso y favoritos se persisten en Firestore o localmente para visitantes. |
+| Identidad y permisos | Sesión, recuperación/verificación de email y rol Admin. | [`src/lib/firebase.ts`](./src/lib/firebase.ts), [`src/lib/emailApi.ts`](./src/lib/emailApi.ts), [`server/index.ts`](./server/index.ts), [`server/email.ts`](./server/email.ts) | Firebase Authentication entrega identidad; Express verifica el ID token y resuelve `admins/{uid}` antes de acciones administrativas. |
+| Checkout, pagos e inventario | Validación de precios/stock, reserva temporal, orden, confirmación y reembolso. | [`src/lib/commerceApi.ts`](./src/lib/commerceApi.ts), [`server/index.ts`](./server/index.ts), [`firestore.rules`](./firestore.rules) | React envía cantidades y dirección; Express consulta catálogo y Firestore, reserva stock transaccionalmente y crea preferencia en Mercado Pago. El webhook firmado y la conciliación confirman el pago y actualizan el pedido. |
+| Compras y seguimiento | Historial propio, detalle, mensajes y estados de entrega. | [`src/components/CustomerOrdersPage.tsx`](./src/components/CustomerOrdersPage.tsx), [`src/components/OrderStatusPage.tsx`](./src/components/OrderStatusPage.tsx), [`src/components/OrderMessages.tsx`](./src/components/OrderMessages.tsx) | El cliente consulta solo sus pedidos a través de la API; Administración guarda estados y estimaciones y ambos lados intercambian mensajes ligados al pedido. |
+| Administración de catálogo y opiniones | Publicación, stock, fotos, moderación y gestión de accesos. | [`src/App.tsx`](./src/App.tsx), [`src/lib/adminProductApi.ts`](./src/lib/adminProductApi.ts), [`src/lib/reviewsApi.ts`](./src/lib/reviewsApi.ts), [`server/index.ts`](./server/index.ts) | La API protege cargas, moderación y permisos; Firestore almacena las publicaciones y opiniones, Cloudinary guarda sus assets privados. |
+| Reportes de ventas | Resumen histórico por fechas, estados de pago y productos. | [`src/components/AdminSalesReport.tsx`](./src/components/AdminSalesReport.tsx), [`src/lib/salesReporting.ts`](./src/lib/salesReporting.ts), [`server/salesReporting.ts`](./server/salesReporting.ts), [`tests/salesReporting.test.ts`](./tests/salesReporting.test.ts) | Admin solicita `GET /api/admin/sales-report`; Express consulta pedidos paginados en Firestore y la lógica compartida calcula ventas, devoluciones, pendientes y productos. |
+| Comprobante | Descarga de resumen de compra en PDF no fiscal. | [`src/lib/purchaseReceipt.ts`](./src/lib/purchaseReceipt.ts) | Se genera en el cliente a partir del detalle del pedido; no emite comprobantes fiscales ni informa una factura fiscal. |
+
+### Flujos funcionales
+
+**Venta:** el cliente arma el bolso y completa dirección → la API vuelve a consultar precios y stock confiables → una transacción reserva inventario por 30 minutos y crea un pedido `pending` → la API crea la preferencia de Checkout Pro → Mercado Pago notifica el resultado firmado → el servidor vuelve a consultar Mercado Pago, valida pedido, importe, moneda y modo → acredita o registra el resultado y actualiza stock/estado → el cliente consulta el detalle y el seguimiento. Si la reserva vence o el pago falla, el stock retenido se libera. Un reembolso completo se refleja en el estado del pedido; el cliente no puede despachar un pedido en devolución pendiente.
+
+**Usuarios y autenticación:** Firebase Authentication administra registro, sesión, verificación y recuperación. Los perfiles se guardan en `users/{uid}`; cada persona lee y actualiza solo su propio perfil. Las acciones privadas reciben un ID token y la API verifica el UID. El rol se almacena en `admins/{uid}` y se comprueba en el servidor y en las reglas; `ADMIN_EMAILS` sirve para bootstrap, no reemplaza la verificación del rol.
+
+**Productos, clientes e inventario:** el catálogo inicial de demostración está en código y las publicaciones del Admin se guardan en `products/{productId}`. El Admin gestiona precio, stock, visibilidad, galería y atributos. Los clientes guardan bolso/favoritos bajo sus documentos de usuario (o localmente mientras son visitantes). El stock se reserva/descuenta desde el servidor y no debe modificarse desde el navegador. Los pedidos conservan una instantánea de los artículos comprados y la dirección para no depender de cambios posteriores del catálogo.
+
+**Reportes:** el filtro incluye ambas fechas seleccionadas (calendario de Argentina), permite hasta 366 días y consulta todas las páginas del rango, no los 50 pedidos del panel operativo. Ventas brutas suman pedidos aprobados y reembolsados; el reembolso completo se resta para calcular ventas netas. Pendientes se muestran aparte y no se suman como ingresos. Los productos y las unidades se cuentan en pedidos actualmente aprobados. Un pedido reembolsado se atribuye al período de creación original; por ello este informe describe el estado actual de los pedidos del período, no un libro contable por fecha de liquidación.
+
+Las fechas estimadas exactas se presentan con expresiones claras según el calendario argentino: “Llega hoy”, “Llega mañana” o la fecha del mes. Solo se usa “Llega entre…” cuando el cliente tiene un rango de días distintos. Esta presentación se comparte entre el detalle y la lista de compras.
+
+### Datos principales y relaciones
+
+| Colección/documento | Contenido y relación |
+| --- | --- |
+| `users/{uid}` | Perfil y datos de contacto/domicilio del usuario autenticado. |
+| `users/{uid}/favorites/{productId}` / `cart/{productId}` | Favoritos y bolso privados por cuenta; los visitantes usan almacenamiento local. |
+| `admins/{uid}` | `active` define el permiso administrativo; el servidor es el único escritor confiable. |
+| `products/{productId}` | Publicación, imágenes HTTPS, atributos, precio, disponibilidad y stock. |
+| `categories/{categoryId}` | Categorías dinámicas administrables, referenciadas por productos. |
+| `orders/{orderId}` | Usuario, artículos y dirección como instantánea, importes ARS, pago, envío, historial, reserva y marcas temporales. Cada pedido pertenece a un `userId`. |
+| `productReviews/{reviewId}` / `productReviewSummaries/{productId}` | Opiniones verificadas y promedios por producto; `verifiedPurchases` valida compras anteriores. |
+| `orders/{orderId}/messages/{messageId}` | Mensajes del cliente y Administración asociados a una compra. |
+
+Firestore también contiene documentos auxiliares de revisión/moderación de archivos. Las escrituras privilegiadas se realizan con Firebase Admin después de validaciones de API; no son accesibles con las credenciales del navegador.
+
+### Roles, comprobantes y límites del producto
+
+| Actor | Puede hacer |
+| --- | --- |
+| Visitante | Explorar el catálogo, administrar bolso/favoritos locales e iniciar autenticación. |
+| Cliente autenticado | Gestionar sus datos y compras, pagar, consultar seguimiento, comunicarse sobre su pedido y opinar sobre compras verificadas. |
+| Administrador activo | Gestionar catálogo/categorías, pedidos/envíos, opiniones/archivos, accesos y reportes históricos. La API valida su sesión y rol. |
+
+Los PDFs disponibles son comprobantes informativos no fiscales. No existe todavía facturación electrónica, integración con ARCA, conciliación bancaria/contable, sistema multi-vendedor ni seguimiento de ubicación en vivo. Las métricas del reporte son operativas, no sustituyen registros contables.
+
+### API de Express
+
+Todas las rutas están implementadas en [`server/index.ts`](./server/index.ts); salvo salud y endpoints públicos descritos, se exige Firebase ID token. Las rutas `/api/admin/*` requieren además rol Admin activo.
+
+| Rutas | Métodos y función |
+| --- | --- |
+| `/api/health` | `GET`: estado de configuración de integraciones sin devolver secretos. |
+| `/api/admin/status`, `/api/admin/self-revoke`, `/api/admin/users` | `GET`/`POST`: consultar elegibilidad Admin, revocar el propio acceso y conceder accesos. |
+| `/api/email/verification`, `/api/email/password-reset` | `POST`: enviar acciones de verificación y recuperación. |
+| `/api/payments/mercadopago/preference`, `/api/payments/mercadopago/webhook` | `POST`: crear Checkout Pro y procesar notificaciones firmadas. |
+| `/api/orders`, `/api/orders/:orderId`, `/api/orders/:orderId/payment-sync`, `/api/orders/:orderId/cancel` | `POST`/`GET`: crear pedido, leer compra propia, conciliar pago y solicitar cancelación/reembolso. |
+| `/api/orders/:orderId/messages` | `GET`/`POST`: consultar y enviar mensajes del pedido propio o administrado. |
+| `/api/reviews/summary`, `/api/products/:productId/reviews`, `/api/products/:productId/reviews/media` | `GET`/`POST`: resúmenes, lectura/escritura de opiniones y carga de adjuntos. |
+| `/api/admin/product-reviews`, `/api/admin/product-reviews/:reviewId`, `/api/admin/product-review-media`, `/api/admin/product-review-media/:mediaId` | `GET`/`DELETE`/`PATCH`: listar y moderar opiniones y archivos. |
+| `/api/admin/products/:productId/images`, `/api/admin/products/wishlist-counts` | `POST`: cargar imágenes de producto y consultar conteos agregados de favoritos. |
+| `/api/admin/orders`, `/api/admin/orders/:orderId` | `GET`/`PATCH`: listar últimos 50 pedidos operativos y actualizar estado/envío. |
+| `/api/admin/sales-report` | `GET`: informe de ventas completo de un rango; acepta `from=YYYY-MM-DD` y `to=YYYY-MM-DD`. |
+
+Categorías y parte del perfil, bolso y favoritos se gestionan directamente desde Firestore con las reglas de seguridad, por eso no tienen una ruta Express dedicada. Los contratos de pedidos/pagos están en [`src/lib/commerceApi.ts`](./src/lib/commerceApi.ts).
+
+### Configuración y variables de entorno
+
+| Variables | Dónde | Uso |
+| --- | --- | --- |
+| `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID` | Cliente (`.env.local`/Render) | Configuración pública de la app web Firebase; queda en el bundle. No son credenciales administrativas. |
+| `FIREBASE_PROJECT_ID`, `GOOGLE_APPLICATION_CREDENTIALS` | Servidor (`.env.server`/Render Secret Files) | Proyecto y credenciales de Firebase Admin; la clave JSON nunca va al cliente ni a Git. En hosting con identidad de servicio puede usarse Application Default Credentials. |
+| `ADMIN_EMAILS` | Servidor | Lista separada por comas para inicializar administradores de confianza. |
+| `PUBLIC_APP_URL`, `PORT`, `NODE_ENV` | Servidor/plataforma | Origen para enlaces y retornos, puerto y modo de ejecución. Render también aporta `RENDER_EXTERNAL_URL`. |
+| `MERCADO_PAGO_MODE`, `MERCADO_PAGO_ACCESS_TOKEN`, `MERCADO_PAGO_WEBHOOK_SECRET`, `MERCADO_PAGO_ALLOW_PRODUCTION` | Servidor | Checkout y verificación. Se inicia en `sandbox`; producción requiere habilitación explícita adicional. |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Servidor | Cargas privadas de imágenes/medios. Nunca usar prefijo `VITE_`. |
+| `BREVO_API_KEY`, `EMAIL_FROM` | Servidor, opcional | Envío por Brevo, con prioridad sobre SMTP. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Servidor, opcional | Alternativa de envío de emails por SMTP. |
+
 ## Requisitos
 
 - Node.js 20.19+ o 22.12+
@@ -121,7 +226,7 @@ El catálogo inicial de demostración está en `src/data/products.ts`; las publi
 
 Las opiniones se guardan en `productReviews` y sus promedios en `productReviewSummaries`. Los clientes solo pueden leerlas; la API valida la sesión, el email verificado y el registro privado `verifiedPurchases` creado al acreditar un pago antes de aceptar o editar una opinión. Desde Admin se pueden revisar y eliminar opiniones publicadas; al eliminarlas se actualizan los promedios y también se quitan sus adjuntos de Cloudinary. Las reseñas contienen puntuación y comentario de texto; no dependen de almacenamiento de archivos.
 
-El panel Admin vive en la ruta independiente `/admin` y requiere una sesión con rol administrativo validado por la API. Incluye navegación por pedidos, opiniones, productos y accesos, modo claro/oscuro, enlace para saltar al contenido, navegación por teclado y preferencias de accesibilidad ajustables. El panel permite ampliar texto, reforzar el contraste, minimizar animaciones, destacar el foco de teclado y compactar el espacio entre registros; esas preferencias se almacenan localmente en el navegador.
+El panel Admin vive en la ruta independiente `/admin` y requiere una sesión con rol administrativo validado por la API. Incluye navegación por pedidos, reportes, opiniones, productos, categorías y accesos, modo claro/oscuro, enlace para saltar al contenido, navegación por teclado y preferencias de accesibilidad ajustables. El panel permite ampliar texto, reforzar el contraste, minimizar animaciones, destacar el foco de teclado y compactar el espacio entre registros; esas preferencias se almacenan localmente en el navegador.
 
 La verificación se envía al registrarse; la app permite explorar y guardar mientras tanto y muestra el estado en **Mi cuenta**. Firebase Admin genera enlaces de acción de un solo uso y el servidor los envía en correos de marca mediante SMTP; las plantillas integradas de Firebase ya no se usan para estos dos flujos.
 
@@ -131,7 +236,7 @@ El centro de notificaciones muestra la acreditación confirmada del pago y cambi
 
 Firestore funciona como backend administrado para autenticación y datos privados del usuario. Se agregó una API Express pequeña porque Firebase Admin y el envío SMTP requieren credenciales privadas que no deben incluirse en React. La API valida tokens de Firebase para reenviar verificaciones, limita intentos, y da respuestas genéricas en el restablecimiento para no revelar si un email está registrado.
 
-Los pagos se integran con **Mercado Pago Checkout Pro**, empezando en sandbox: la tienda no recibe ni guarda datos de tarjetas, y los pagos de prueba no mueven dinero real. La API vuelve a calcular los importes desde el catálogo confiable, reserva stock durante 30 minutos y crea el pedido pendiente. El servidor acredita los pagos mediante webhooks firmados y consulta la API de Mercado Pago para verificar cada transacción. Al volver del checkout, el cliente autenticado también puede solicitar una conciliación del pago; el servidor valida que Mercado Pago asocie el pago al pedido, que importe y moneda coincidan y que el modo sea el esperado antes de actualizarlo. Nunca se confía en el estado de pago indicado por la URL del navegador. Las reservas vencidas se liberan periódicamente. Las opiniones son textuales para evitar costos de almacenamiento.
+Los pagos se integran con **Mercado Pago Checkout Pro**, empezando en sandbox: la tienda no recibe ni guarda datos de tarjetas, y los pagos de prueba no mueven dinero real. La API vuelve a calcular los importes desde el catálogo confiable, reserva stock durante 30 minutos y crea el pedido pendiente. El servidor acredita los pagos mediante webhooks firmados y consulta la API de Mercado Pago para verificar cada transacción. Al volver del checkout, el cliente autenticado también puede solicitar una conciliación del pago; el servidor valida que Mercado Pago asocie el pago al pedido, que importe y moneda coincidan y que el modo sea el esperado antes de actualizarlo. Nunca se confía en el estado de pago indicado por la URL del navegador. Las reservas vencidas se liberan periódicamente. Las opiniones son de texto y admiten adjuntos opcionales moderados en Cloudinary.
 
 ### Probar pagos sin dinero real
 
@@ -168,7 +273,7 @@ Los productos nuevos se publican desde el panel con nombre, categoría, descripc
 
 La compra desde la ficha agrega la cantidad seleccionada al bolso y respeta el stock que conoce el catálogo. La API de checkout sigue siendo la validación final de precios y disponibilidad. Las opciones de cuotas dependen de la respuesta de Mercado Pago para cada compra y no se prometen antes del checkout. Como la tienda aún maneja un único vendedor, la ficha identifica a Lúmina y no simula ofertas de otros comercios ni un catálogo de minoristas.
 
-Las reseñas de la ficha admiten puntuación y comentarios de texto de compradores verificados. No se adjuntan fotos ni videos. Tampoco se incluyen preguntas públicas/respuestas del vendedor en esta etapa.
+Las reseñas de la ficha admiten puntuación y comentarios de compradores verificados. Pueden incluir fotos y un video de Cloudinary que requieren moderación antes de publicarse. Tampoco se incluyen preguntas públicas/respuestas del vendedor en esta etapa.
 
 Los productos de ejemplo conservan su catálogo inicial y comienzan con un stock de demostración; al procesar compras, la API lo descuenta de forma atómica. Ocultar un producto lo saca de la tienda sin borrar su historial.
 
@@ -194,17 +299,20 @@ En desarrollo local se mantiene el proxy `/api` de Vite; `npm run dev:full` inic
 ## Comandos
 
 ```powershell
+npm install
 npm run dev
 npm run dev:api
 npm run dev:full
 npm run lint
 npm run build
 npm run typecheck:api
+npm test
 ```
 
-## Próximos pasos
+`npm test` ejecuta pruebas unitarias de la lógica pura de reportes con `node:test` y `tsx`. El proyecto aún no tiene pruebas end-to-end contra Firebase, Mercado Pago, Cloudinary o email; esas integraciones requieren entornos de prueba y credenciales aisladas.
 
-1. Completar pruebas de pagos con credenciales sandbox y usuarios de prueba antes de evaluar una habilitación productiva.
-2. Integrar notificaciones de mensajería y seguimiento en vivo cuando se defina una plataforma de correo compatible.
-3. Mejorar el panel con filtros, métricas y carga de imágenes cuando exista una solución de almacenamiento aprobada.
-4. Implementar recomendaciones iniciales por categoría y popularidad.
+## Despliegue y puntos pendientes
+
+El despliegue configurado usa [`render.yaml`](./render.yaml): Render compila la SPA y ejecuta Express desde el mismo origen. Firebase Authentication debe autorizar el dominio publicado y las reglas/índices se publican con `firebase deploy --only firestore`. Mercado Pago debe permanecer en sandbox hasta completar una revisión operativa propia y configurar las credenciales y el webhook de producción de forma explícita.
+
+Puntos conocidos: `src/App.tsx` y `server/index.ts` concentran todavía muchas responsabilidades; la extracción de lógica de negocio a módulos independientes debe continuar de forma incremental. Los informes recorren como máximo 20.000 pedidos por consulta y devuelven un error explícito al superar ese límite para no presentar totales parciales. El reporte utiliza estados actuales y fecha original del pedido, no una bitácora contable de eventos de pago. Faltan pruebas automatizadas de integración para Firestore Rules y proveedores externos. No se implementaron facturación fiscal, multi-vendedor, notificaciones push ni tracking geográfico en vivo.
