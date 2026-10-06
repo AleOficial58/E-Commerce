@@ -2912,6 +2912,19 @@ main {
   gap: 18px;
 }
 
+.order-page-grid.is-purchase-confirmation {
+  grid-template-columns: minmax(0, 820px);
+  justify-content: center;
+}
+
+.order-page-grid.is-purchase-confirmation .order-purchase-summary {
+  position: static;
+}
+
+.order-page-grid.is-purchase-confirmation .order-purchase-summary > .profile-save-button {
+  display: none;
+}
+
 .order-page-main {
   display: grid;
   gap: 14px;

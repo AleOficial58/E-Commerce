@@ -3157,10 +3157,14 @@ function Storefront() {
         }}
         onBack={returnToStore}
         onViewPurchases={() => {
+          const orderId = paymentReturnOrderId
+          if (!orderId) return
           returnToStore()
-          setCustomerOrdersLoading(true)
-          setCustomerOrdersError('')
-          setCustomerOrdersPageOpen(true)
+          setCustomerOrdersPageOpen(false)
+          setSelectedCustomerOrderId(orderId)
+          setSelectedCustomerOrder(paymentReturnOrder?.id === orderId ? paymentReturnOrder : null)
+          setSelectedCustomerOrderStatus(paymentReturnStatus === 'approved' ? 'approved' : 'checking')
+          setSelectedCustomerOrderMessage('')
         }}
         onIncomingChatMessage={handleIncomingChatMessage}
         money={money}

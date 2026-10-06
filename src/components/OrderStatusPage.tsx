@@ -187,17 +187,18 @@ export function OrderStatusPage({
       : order?.paymentTypeId === 'account_money'
         ? 'Dinero en cuenta'
         : ''
-  const showOrderMessages = detailMode || (
-    status === 'approved' &&
-    order?.paymentStatus === 'approved' &&
-    order.status !== 'cancelled' &&
-    order.status !== 'cancellation_refund_pending'
-  )
   const showPurchaseCelebration = !detailMode &&
     status === 'approved' &&
     order?.paymentStatus === 'approved' &&
     order.status !== 'cancelled' &&
     order.status !== 'cancellation_refund_pending'
+  const showOrderMessages = detailMode || (
+    !showPurchaseCelebration &&
+    status === 'approved' &&
+    order?.paymentStatus === 'approved' &&
+    order.status !== 'cancelled' &&
+    order.status !== 'cancellation_refund_pending'
+  )
   const showDeliveryCelebration = detailMode &&
     deliveryCelebration &&
     order?.status === 'delivered'
@@ -255,7 +256,7 @@ export function OrderStatusPage({
           <span>{detailMode ? 'Detalle de compra' : 'Estado de la compra'}</span>
         </nav>
 
-        <div className="order-page-grid">
+        <div className={`order-page-grid${showPurchaseCelebration ? ' is-purchase-confirmation' : ''}`}>
           <div className="order-page-main">
             <section
               className={`order-status-card is-${status}${
@@ -326,7 +327,7 @@ export function OrderStatusPage({
                 </div>
               )}
 
-              {status === 'approved' && order?.paymentStatus === 'approved' && (
+              {status === 'approved' && order?.paymentStatus === 'approved' && !showPurchaseCelebration && (
                 <>
                   <ol
                     className={`order-timeline ${
@@ -434,51 +435,55 @@ export function OrderStatusPage({
               )}
             </section>
 
-            <section className="order-page-card">
-              <h2>Productos de tu compra</h2>
-              {order ? (
-                <div className="order-status-items">
-                  {order.items.map((item) => (
-                    <article className="order-status-item" key={item.id}>
-                      <img src={item.image} alt="" />
-                      <div>
-                        <strong>{item.name}</strong>
-                        <span>{item.quantity} {item.quantity === 1 ? 'unidad' : 'unidades'} · {money.format(item.price)} c/u</span>
-                      </div>
-                      <b>{money.format(item.lineTotal)}</b>
-                    </article>
-                  ))}
-                  {order.items.length === 0 && <p className="order-empty-items">No hay productos disponibles para mostrar.</p>}
-                </div>
-              ) : (
-                <p className="order-loading">Los productos aparecerán cuando podamos consultar el pedido.</p>
-              )}
-            </section>
-
-            <section className="order-page-card">
-              <h2>Información de entrega</h2>
-              {address ? (
-                <address className="order-shipping-address">
-                  <strong>{address.name}</strong>
-                  <span>{address.address}{address.apartment ? `, ${address.apartment}` : ''}</span>
-                  <span>{address.city}, {address.province} {address.postalCode}</span>
-                  <span>{address.phone}</span>
-                </address>
-              ) : (
-                <p className="order-loading">La dirección aparecerá cuando podamos consultar el pedido.</p>
-              )}
-              {order?.status === 'shipped' && (
-                <div className="order-tracking-note">
-                  {order.trackingCarrier && <strong>Correo: {order.trackingCarrier}</strong>}
-                  {order.trackingCode && <span>Código de seguimiento: {order.trackingCode}</span>}
-                  {order.trackingUrl && (
-                    <a href={order.trackingUrl} target="_blank" rel="noreferrer">Seguir paquete</a>
+            {!showPurchaseCelebration && (
+              <>
+                <section className="order-page-card">
+                  <h2>Productos de tu compra</h2>
+                  {order ? (
+                    <div className="order-status-items">
+                      {order.items.map((item) => (
+                        <article className="order-status-item" key={item.id}>
+                          <img src={item.image} alt="" />
+                          <div>
+                            <strong>{item.name}</strong>
+                            <span>{item.quantity} {item.quantity === 1 ? 'unidad' : 'unidades'} · {money.format(item.price)} c/u</span>
+                          </div>
+                          <b>{money.format(item.lineTotal)}</b>
+                        </article>
+                      ))}
+                      {order.items.length === 0 && <p className="order-empty-items">No hay productos disponibles para mostrar.</p>}
+                    </div>
+                  ) : (
+                    <p className="order-loading">Los productos aparecerán cuando podamos consultar el pedido.</p>
                   )}
-                  {!order.trackingCode && !order.trackingUrl &&
-                    <span>El paquete fue marcado como enviado. El equipo actualizará el seguimiento a medida que haya novedades.</span>}
-                </div>
-              )}
-            </section>
+                </section>
+
+                <section className="order-page-card">
+                  <h2>Información de entrega</h2>
+                  {address ? (
+                    <address className="order-shipping-address">
+                      <strong>{address.name}</strong>
+                      <span>{address.address}{address.apartment ? `, ${address.apartment}` : ''}</span>
+                      <span>{address.city}, {address.province} {address.postalCode}</span>
+                      <span>{address.phone}</span>
+                    </address>
+                  ) : (
+                    <p className="order-loading">La dirección aparecerá cuando podamos consultar el pedido.</p>
+                  )}
+                  {order?.status === 'shipped' && (
+                    <div className="order-tracking-note">
+                      {order.trackingCarrier && <strong>Correo: {order.trackingCarrier}</strong>}
+                      {order.trackingCode && <span>Código de seguimiento: {order.trackingCode}</span>}
+                      {order.trackingUrl && (
+                        <a href={order.trackingUrl} target="_blank" rel="noreferrer">Seguir paquete</a>
+                      )}
+                      {!order.trackingCode && !order.trackingUrl &&
+                        <span>El paquete fue marcado como enviado. El equipo actualizará el seguimiento a medida que haya novedades.</span>}
+                    </div>
+                  )}
+                </section>
+              </>
+            )}
             {detailMode && (
               <section className="order-page-card order-help" aria-labelledby="order-help-title">
                 <h2 id="order-help-title">Ayuda con la compra</h2>
@@ -524,7 +529,7 @@ export function OrderStatusPage({
           </div>
 
           <aside className="order-page-card order-purchase-summary">
-            <h2>Detalle de la compra</h2>
+            <h2>{showPurchaseCelebration ? 'Resumen de tu compra' : 'Detalle de la compra'}</h2>
             <dl>
               <div><dt>Número de pedido</dt><dd>{order?.id ?? orderId}</dd></div>
               {formattedDate && <div><dt>Fecha</dt><dd>{formattedDate}</dd></div>}
@@ -547,7 +552,9 @@ export function OrderStatusPage({
               {order && <div className="order-summary-total"><dt>Total</dt><dd>{money.format(order.total)}</dd></div>}
             </dl>
             <p>
-              {detailMode
+              {showPurchaseCelebration
+                ? 'Tu pago fue confirmado por Mercado Pago. Este comprobante no es una factura fiscal.'
+                : detailMode
                 ? 'El avance se actualiza cuando Lúmina cambia el estado del pedido.'
                 : 'El estado del pedido se actualiza cuando recibimos la confirmación de Mercado Pago.'}
             </p>
@@ -625,9 +632,11 @@ export function OrderStatusPage({
             {cancelMessage && order?.status !== 'cancellation_refund_pending' && (
               <p className="order-cancel-success" role="status">{cancelMessage}</p>
             )}
-            <button className="button button-dark profile-save-button" type="button" onClick={onBack}>
-              {backLabel}
-            </button>
+            {!showPurchaseCelebration && (
+              <button className="button button-dark profile-save-button" type="button" onClick={onBack}>
+                {backLabel}
+              </button>
+            )}
           </aside>
         </div>
       </div>
