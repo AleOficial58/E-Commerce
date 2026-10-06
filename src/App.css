@@ -8631,7 +8631,7 @@ html[data-theme='dark'] .admin-backdrop {
 html[data-theme='dark'] .admin-backdrop[data-admin-contrast='high'] {
   --admin-ink: #fff;
   --admin-muted: #f1f1f1;
-  --admin-line: #bfc3c8;
+  --admin-line: #66717c;
   --admin-accent: #ffd2eb;
   --admin-accent-soft: #493646;
 }
@@ -11932,9 +11932,9 @@ html[data-theme='dark'] .customer-order-tabs button.is-active {
 .admin-main .admin-order-customer {
   margin-top: 13px;
   padding: 14px 16px;
-  border: 1px solid color-mix(in srgb, var(--admin-line) 74%, transparent);
-  border-radius: 17px;
-  background: color-mix(in srgb, var(--admin-surface-muted) 74%, transparent);
+  border: 0;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--admin-surface-muted) 82%, transparent);
 }
 
 .admin-main .admin-order-customer > strong {
@@ -12049,8 +12049,7 @@ html[data-theme='dark'] .customer-order-tabs button.is-active {
 }
 
 html[data-theme='dark'] .admin-main .admin-order-customer {
-  border-color: var(--admin-line);
-  background: color-mix(in srgb, var(--admin-surface-muted) 80%, transparent);
+  background: color-mix(in srgb, var(--admin-surface-muted) 88%, transparent);
 }
 
 html[data-theme='dark'] .admin-main .admin-order-total {
@@ -12071,6 +12070,19 @@ html[data-theme='dark'] .admin-main .admin-order-total {
   .admin-main .admin-shipment-editor {
     padding: 10px 13px;
     border-radius: 19px;
+  }
+}
+
+@media (min-width: 841px) {
+  .admin-sidebar .admin-tabs {
+    min-width: 0;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 840px) {
+  .admin-sidebar .admin-tabs {
+    overflow-x: auto;
   }
 }
 

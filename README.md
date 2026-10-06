@@ -51,6 +51,8 @@ Al regresar de Mercado Pago, la página presenta primero la confirmación celebr
 
 Las fechas estimadas exactas se presentan con expresiones claras según el calendario argentino: “Llega hoy”, “Llega mañana” o la fecha del mes. Solo se usa “Llega entre…” cuando el cliente tiene un rango de días distintos. Esta presentación se comparte entre el detalle y la lista de compras. Al marcar un pedido como entregado, ambas vistas reemplazan la estimación por la fecha real registrada: “Entregado hoy”, “Entregado ayer” o la fecha confirmada; nunca muestran una fecha futura estimada como si el pedido siguiera pendiente. El panel y las notificaciones traducen los estados internos de pedidos y pagos a etiquetas legibles; los identificadores de la API/Firestore no se exponen como texto de interfaz.
 
+En Administración, la configuración de envío solo está disponible para pedidos con pago aprobado que todavía no se hayan entregado; los mensajes del pedido permanecen disponibles para consultas posteriores. En escritorio, las secciones de navegación se muestran sin una barra de desplazamiento horizontal, mientras que en pantallas angostas mantienen desplazamiento lateral. El alto contraste conserva texto legible y usa límites más discretos para evitar que cada bloque interno parezca una tarjeta independiente.
+
 ### Datos principales y relaciones
 
 | Colección/documento | Contenido y relación |
