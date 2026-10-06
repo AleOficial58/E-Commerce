@@ -265,6 +265,7 @@ export function pollCustomerOrder(
   onUpdate: (result: { order: CustomerOrderStatus }) => void,
   onError: (error: Error) => void,
   paymentId = '',
+  onPaymentSyncError?: (error: Error) => void,
 ): () => void {
   let active = true
   let timeout: number | undefined
@@ -304,8 +305,8 @@ export function pollCustomerOrder(
       onUpdate({ order })
       nextPollInterval = order.paymentStatus === 'approved' ? 15_000 : 3000
       if (paymentSyncError && order.paymentStatus !== 'approved') {
-        onError(paymentSyncError)
-        return
+        onPaymentSyncError?.(paymentSyncError)
+        nextPollInterval = 10_000
       }
       if (
         ['rejected', 'cancelled', 'refunded', 'charged_back', 'expired', 'preference_failed']

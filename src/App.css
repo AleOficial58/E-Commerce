@@ -11122,3 +11122,238 @@ html[data-theme='dark'] .order-message-form textarea {
   color: #f0e8ec;
   background-color: transparent;
 }
+
+.order-purchase-celebration,
+.order-delivery-celebration {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 17px;
+  overflow: hidden;
+  margin-top: 20px;
+  padding: 16px 18px;
+  border: 1px solid #e8d9dd;
+  border-radius: 18px;
+  background: linear-gradient(115deg, #fff6f4, #fffdfb 76%);
+}
+
+.order-purchase-celebration img,
+.order-delivery-celebration img {
+  width: 74px;
+  height: 78px;
+  flex: 0 0 auto;
+  border: 1px solid rgb(148 107 119 / 14%);
+  border-radius: 16px;
+  object-fit: cover;
+  animation: product-arrival .85s cubic-bezier(.2, .8, .25, 1) both;
+}
+
+.order-purchase-celebration > div,
+.order-delivery-celebration > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.order-purchase-celebration .eyebrow,
+.order-delivery-celebration .eyebrow {
+  color: #a06f80;
+  font-size: 9px;
+  letter-spacing: .12em;
+}
+
+.order-purchase-celebration h2,
+.order-delivery-celebration h2 {
+  margin: 5px 0 0;
+  color: #44363d;
+  font-family: var(--font-heading);
+  font-size: 17px;
+  letter-spacing: -.035em;
+}
+
+.order-purchase-celebration p,
+.order-delivery-celebration p {
+  margin: 5px 0 0;
+  color: #81747a;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.order-purchase-celebration button {
+  min-height: 38px;
+  flex: 0 0 auto;
+  padding: 9px 14px;
+  border: 1px solid #7f596d;
+  border-radius: 12px;
+  background: #7f596d;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  transition: background-color .18s, transform .18s;
+}
+
+.order-purchase-celebration button:hover {
+  transform: translateY(-1px);
+  background: #684558;
+}
+
+.order-delivery-celebration {
+  border-color: #d9e8dc;
+  background: linear-gradient(115deg, #f0f8f1, #fffdfb 76%);
+}
+
+.order-delivery-celebration::after {
+  position: absolute;
+  top: 8px;
+  right: 15px;
+  color: #81ad8b;
+  content: '✳';
+  font-size: 18px;
+  animation: arrival-sparkle .9s ease-out both;
+}
+
+@keyframes product-arrival {
+  from { opacity: 0; transform: translateY(12px) scale(.88) rotate(-4deg); }
+  70% { opacity: 1; transform: translateY(-2px) scale(1.03) rotate(1deg); }
+  to { opacity: 1; transform: translateY(0) scale(1) rotate(0); }
+}
+
+@keyframes arrival-sparkle {
+  from { opacity: 0; transform: scale(.4) rotate(-35deg); }
+  60% { opacity: 1; transform: scale(1.2) rotate(12deg); }
+  to { opacity: .8; transform: scale(1) rotate(0); }
+}
+
+.customer-order-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.customer-order-tabs button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 13px;
+  border: 1px solid #e8dedf;
+  border-radius: 999px;
+  background: #fff;
+  color: #76596a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  transition: border-color .18s, background-color .18s, color .18s;
+}
+
+.customer-order-tabs button.is-active {
+  border-color: #765568;
+  background: #765568;
+  color: #fff;
+}
+
+.customer-order-tabs button > span {
+  min-width: 20px;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: rgb(118 89 106 / 10%);
+  font-size: 9px;
+  text-align: center;
+}
+
+.customer-order-tabs button.is-active > span {
+  background: rgb(255 255 255 / 20%);
+}
+
+.customer-orders-filter-empty {
+  padding: 32px 20px;
+}
+
+html[data-theme='dark'] .order-purchase-celebration {
+  border-color: #51414b;
+  background: linear-gradient(115deg, #332831, #29232b 76%);
+}
+
+html[data-theme='dark'] .order-delivery-celebration {
+  border-color: #405143;
+  background: linear-gradient(115deg, #26352b, #29232b 76%);
+}
+
+html[data-theme='dark'] .order-purchase-celebration h2,
+html[data-theme='dark'] .order-delivery-celebration h2 {
+  color: #f0e8ec;
+}
+
+html[data-theme='dark'] .order-purchase-celebration p,
+html[data-theme='dark'] .order-delivery-celebration p {
+  color: #c2b4bc;
+}
+
+html[data-theme='dark'] .customer-order-tabs button {
+  border-color: #493d48;
+  background: #262128;
+  color: #e4d4dc;
+}
+
+html[data-theme='dark'] .customer-order-tabs button.is-active {
+  border-color: #9b7087;
+  background: #765568;
+  color: #fff;
+}
+
+@media (max-width: 600px) {
+  .order-purchase-celebration,
+  .order-delivery-celebration {
+    display: grid;
+    grid-template-columns: 58px minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    padding: 13px;
+  }
+
+  .order-purchase-celebration img,
+  .order-delivery-celebration img {
+    width: 58px;
+    height: 64px;
+    border-radius: 12px;
+  }
+
+  .order-purchase-celebration h2,
+  .order-delivery-celebration h2 {
+    font-size: 15px;
+  }
+
+  .order-purchase-celebration button {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+    padding: 8px 10px;
+    font-size: 9px;
+  }
+
+  .customer-order-tabs {
+    gap: 6px;
+  }
+
+  .customer-order-tabs button {
+    min-height: 35px;
+    gap: 6px;
+    padding: 7px 10px;
+    font-size: 9px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .order-purchase-celebration img,
+  .order-delivery-celebration img,
+  .order-delivery-celebration::after {
+    animation: none;
+  }
+
+  .order-purchase-celebration button,
+  .customer-order-tabs button {
+    transition: none;
+  }
+}

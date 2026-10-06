@@ -14,8 +14,10 @@ type Props = {
   message: string
   onRefresh: () => void
   onBack: () => void
+  onViewPurchases?: () => void
   backLabel?: string
   detailMode?: boolean
+  deliveryCelebration?: boolean
   money: Intl.NumberFormat
   onCancel?: () => Promise<{ message: string }>
   onIncomingChatMessage?: (orderId: string, message: OrderMessage) => void
@@ -71,8 +73,12 @@ function getStatusMessage(status: PaymentReturnStatus, order: CustomerOrderStatu
   if (status === 'checking') return 'Estamos consultando el estado confirmado por Mercado Pago.'
   if (status === 'error') return message || 'No pudimos consultar tu pedido. Podés volver a intentarlo.'
   if (status === 'failed') return 'Mercado Pago no confirmó el pago. El pedido no avanzará hasta que se complete.'
-  if (status === 'pending') return 'Mercado Pago todavía no confirmó el pago. Actualizaremos el estado cuando recibamos la confirmación.'
-  if (status === 'review') return 'El pago fue aprobado. Estamos revisando la disponibilidad antes de continuar con la preparación.'
+  if (status === 'pending') {
+    return message || 'Mercado Pago todavía no confirmó el pago. Actualizaremos el estado cuando recibamos la confirmación.'
+  }
+  if (status === 'review') {
+    return message || 'El pago fue aprobado. Estamos revisando la disponibilidad antes de continuar con la preparación.'
+  }
   if (order?.status === 'preparing') return 'Tu pago está confirmado y estamos preparando los productos.'
   if (order?.status === 'shipped') return 'Tu pedido ya fue despachado. El estado se actualizará cuando esté entregado.'
   if (order?.status === 'delivered') return 'El pedido figura como entregado. ¡Gracias por comprar en Lúmina!'
@@ -87,8 +93,10 @@ export function OrderStatusPage({
   message,
   onRefresh,
   onBack,
+  onViewPurchases,
   backLabel = 'Volver a la tienda',
   detailMode = false,
+  deliveryCelebration = false,
   money,
   onCancel,
   onIncomingChatMessage,
@@ -231,6 +239,37 @@ export function OrderStatusPage({
                   <p>{getStatusMessage(status, order, message)}</p>
                 </div>
               </div>
+
+              {!detailMode && status === 'approved' && order?.paymentStatus === 'approved' &&
+                order.status !== 'cancelled' && order.status !== 'cancellation_refund_pending' && (
+                  <section className="order-purchase-celebration" aria-label="Compra confirmada">
+                    {order.items[0] && (
+                      <img
+                        src={order.items[0].image}
+                        alt={order.items[0].name}
+                      />
+                    )}
+                    <div>
+                      <span className="eyebrow section-eyebrow">TU COMPRA YA ESTÁ EN CAMINO</span>
+                      <h2>¡Qué lindo, {order.items[0]?.name ?? 'tu pedido'}!</h2>
+                      <p>El pago está confirmado. Te avisaremos cuando tu pedido avance y llegue a tus manos.</p>
+                    </div>
+                    {onViewPurchases && (
+                      <button type="button" onClick={onViewPurchases}>Ver mis compras</button>
+                    )}
+                  </section>
+                )}
+
+              {detailMode && deliveryCelebration && order?.status === 'delivered' && order.items[0] && (
+                <section className="order-delivery-celebration" aria-live="polite">
+                  <img src={order.items[0].image} alt={order.items[0].name} />
+                  <div>
+                    <span className="eyebrow section-eyebrow">ENTREGA CONFIRMADA</span>
+                    <h2>¡Hola, llegué!</h2>
+                    <p>Tu pedido fue entregado. ¡Esperamos que disfrutes {order.items[0].name}!</p>
+                  </div>
+                </section>
+              )}
 
               {status === 'approved' && order?.paymentStatus === 'approved' && (
                 <>

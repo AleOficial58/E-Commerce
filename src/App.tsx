@@ -1098,6 +1098,7 @@ function Storefront() {
   const [customerOrdersLoading, setCustomerOrdersLoading] = useState(true)
   const [customerOrdersError, setCustomerOrdersError] = useState('')
   const [customerOrdersRefresh, setCustomerOrdersRefresh] = useState(0)
+  const [deliveryCelebrationOrderId, setDeliveryCelebrationOrderId] = useState('')
   const [selectedCustomerOrderId, setSelectedCustomerOrderId] = useState('')
   const [selectedCustomerOrder, setSelectedCustomerOrder] = useState<CustomerOrderStatus | null>(null)
   const [selectedCustomerOrderStatus, setSelectedCustomerOrderStatus] = useState<
@@ -1225,6 +1226,11 @@ function Storefront() {
     shipmentStageDetail?: string | null
   }) => {
     const previous = orderSnapshots.current.get(order.id)
+    const deliveryTransitioned = Boolean(
+      previous &&
+      (previous.status !== 'delivered' && order.status === 'delivered' ||
+        previous.shipmentStage !== 'delivered' && order.shipmentStage === 'delivered'),
+    )
     if (previous) {
       const statusChanged = previous.status !== order.status
       const paymentChanged = previous.paymentStatus !== order.paymentStatus
@@ -1289,6 +1295,7 @@ function Storefront() {
           ? { shipmentStageDetail: previous.shipmentStageDetail }
           : {}),
     })
+    return deliveryTransitioned
   }, [addNotification])
 
   const handleIncomingChatMessage = useCallback((orderId: string, message: { id: string; createdAt: string | null }) => {
@@ -1515,6 +1522,13 @@ function Storefront() {
         setPaymentReturnStatus('error')
       },
       paymentReturnPaymentId,
+      (error) => {
+        if (!active) return
+        console.error('No se pudo conciliar el pago con Mercado Pago.', error)
+        setPaymentReturnMessage(
+          `${error.message} El pedido sí se consultó y volveremos a verificar el pago automáticamente.`,
+        )
+      },
     )
 
     return () => {
@@ -1595,7 +1609,7 @@ function Storefront() {
       try {
         const order = await loadCustomerOrder(user, selectedCustomerOrderId)
         if (!active) return
-        observeOrder(order)
+        if (observeOrder(order)) setDeliveryCelebrationOrderId(order.id)
         setSelectedCustomerOrder(order)
         setSelectedCustomerOrderMessage('')
         if (order.paymentStatus === 'approved') {
@@ -3137,6 +3151,12 @@ function Storefront() {
           setPaymentRefreshCount((count) => count + 1)
         }}
         onBack={returnToStore}
+        onViewPurchases={() => {
+          returnToStore()
+          setCustomerOrdersLoading(true)
+          setCustomerOrdersError('')
+          setCustomerOrdersPageOpen(true)
+        }}
         onIncomingChatMessage={handleIncomingChatMessage}
         money={money}
       />
@@ -3157,6 +3177,7 @@ function Storefront() {
         }}
         onOpenOrder={(orderId) => {
           setCustomerOrdersPageOpen(false)
+          setDeliveryCelebrationOrderId('')
           setSelectedCustomerOrderId(orderId)
           setSelectedCustomerOrderStatus('checking')
           setSelectedCustomerOrderMessage('')
@@ -3179,11 +3200,13 @@ function Storefront() {
         }}
         onBack={() => {
           setSelectedCustomerOrderId('')
+          setDeliveryCelebrationOrderId('')
           setCustomerOrdersPageOpen(true)
         }}
         onIncomingChatMessage={handleIncomingChatMessage}
         backLabel="Volver a mis compras"
         detailMode
+        deliveryCelebration={deliveryCelebrationOrderId === selectedCustomerOrderId}
         money={money}
         onCancel={async () => {
           const result = await cancelCustomerOrder(user, selectedCustomerOrderId)
