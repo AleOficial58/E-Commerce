@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { User } from 'firebase/auth'
-import Swal from 'sweetalert2'
+import type { SweetAlertOptions } from 'sweetalert2'
 import { firebaseReady, getFirebaseServices } from './lib/firebase'
 import {
   loadAndMergeUserStore,
@@ -57,8 +57,15 @@ import { OrderMessages } from './components/OrderMessages'
 import { NotificationCenter } from './components/NotificationCenter'
 import { useNotificationStore } from './lib/notificationStore'
 import { ThemeToggleButton } from './lib/theme'
-import 'sweetalert2/dist/sweetalert2.min.css'
 import './App.css'
+
+async function showConfirmation(options: SweetAlertOptions) {
+  const [{ default: Swal }] = await Promise.all([
+    import('sweetalert2'),
+    import('sweetalert2/dist/sweetalert2.min.css'),
+  ])
+  return Swal.fire(options)
+}
 
 type IconName =
   | 'arrow'
@@ -2770,7 +2777,7 @@ function Storefront() {
   ) {
     if (!user || !isAdmin || adminReviewMediaBusy) return
     if (action === 'reject') {
-      const confirmation = await Swal.fire({
+      const confirmation = await showConfirmation({
         title: '¿Rechazar este archivo?',
         text: 'Se eliminará de forma permanente y no se mostrará en la opinión.',
         icon: 'warning',
@@ -2806,7 +2813,7 @@ function Storefront() {
 
   async function handleAdminReviewDelete(review: AdminProductReview) {
     if (!user || !isAdmin || adminReviewDeleteBusy) return
-    const confirmation = await Swal.fire({
+    const confirmation = await showConfirmation({
       title: '¿Eliminar esta opinión?',
       text: 'Se quitará de la tienda y se eliminarán sus archivos adjuntos. Esta acción no se puede deshacer.',
       icon: 'warning',
@@ -2976,7 +2983,7 @@ function Storefront() {
 
   async function handleRevokeOwnAdminAccess() {
     if (!user || !isAdmin || adminRevokeBusy) return
-    const confirmation = await Swal.fire({
+    const confirmation = await showConfirmation({
       icon: 'warning',
       iconColor: '#a76f7d',
       title: '¿Quitar tu acceso?',
