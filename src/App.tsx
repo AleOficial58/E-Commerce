@@ -1712,7 +1712,12 @@ function Storefront() {
             setAdminAccessStatus(currentUser ? 'checking' : 'not-admin')
             setAdminAccessError('')
             knownAdminOrderIds.current = null
-            setAdminOpen(false)
+            const adminRouteRequested = window.location.pathname === '/admin'
+            setAdminOpen(adminRouteRequested)
+            if (adminRouteRequested) {
+              setAuthOpen(false)
+              setAccountOpen(false)
+            }
             if (!currentUser) {
               setProfileEditorOpen(false)
               setCustomerOrdersPageOpen(false)
@@ -2314,7 +2319,9 @@ function Storefront() {
       setStoreReadyForUid(null)
       setUser(authenticatedUser)
       setAuthOpen(false)
-      setAccountOpen(true)
+      const adminRouteRequested = window.location.pathname === '/admin'
+      setAccountOpen(!adminRouteRequested)
+      if (adminRouteRequested) setAdminOpen(true)
       setNotice(
         authMode === 'register' && verificationEmailMessage
           ? verificationEmailMessage
