@@ -1723,12 +1723,23 @@ app.get(
         const createdAt = order.createdAt instanceof Timestamp
           ? order.createdAt.toDate().toISOString()
           : null
+        const deliveredAt = Array.isArray(order.statusHistory)
+          ? order.statusHistory.reduce((latest: Timestamp | null, event: unknown) => {
+              if (
+                typeof event !== 'object' || event === null ||
+                !('status' in event) || event.status !== 'delivered' ||
+                !('at' in event) || !(event.at instanceof Timestamp)
+              ) return latest
+              return !latest || event.at.toMillis() > latest.toMillis() ? event.at : latest
+            }, null)?.toDate().toISOString() ?? null
+          : null
         return {
           id: document.id,
           paymentStatus: order.paymentStatus,
           status: order.status,
           total: order.total,
           createdAt,
+          deliveredAt,
           shipmentType: order.shipmentType === 'local' || order.shipmentType === 'international'
             ? order.shipmentType
             : null,

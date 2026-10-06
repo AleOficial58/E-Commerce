@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { formatEstimatedDelivery } from '../src/lib/deliveryEstimate.ts'
+import { formatDeliveredAt, formatEstimatedDelivery } from '../src/lib/deliveryEstimate.ts'
 
 const now = new Date('2026-10-06T15:00:00.000Z')
 
@@ -21,4 +21,11 @@ test('retains a readable range when the dates are different', () => {
     formatEstimatedDelivery('2026-10-07', '2026-10-09', now),
     'Llega entre el 7 de octubre y el 9 de octubre',
   )
+})
+
+test('shows the actual delivery date instead of a future estimate after delivery', () => {
+  assert.equal(formatDeliveredAt('2026-10-06T14:14:00.000Z', now), 'Entregado hoy')
+  assert.equal(formatDeliveredAt('2026-10-05T14:14:00.000Z', now), 'Entregado ayer')
+  assert.equal(formatDeliveredAt('2026-10-04T14:14:00.000Z', now), 'Entregado el 4 de octubre')
+  assert.equal(formatDeliveredAt(null, now), 'Entrega confirmada')
 })

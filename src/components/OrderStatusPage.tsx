@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { User } from 'firebase/auth'
 import type { CustomerOrderStatus, OrderMessage } from '../lib/commerceApi'
-import { formatEstimatedDelivery } from '../lib/deliveryEstimate'
+import { formatDeliveredAt, formatEstimatedDelivery } from '../lib/deliveryEstimate'
 import { ThemeToggleButton } from '../lib/theme'
 import { OrderMessages } from './OrderMessages'
 
@@ -366,20 +366,36 @@ export function OrderStatusPage({
                     })}
                   </ol>
                   <section className="order-delivery-estimate" aria-label="Estimación de entrega">
-                    <span className="eyebrow section-eyebrow">FECHA ESTIMADA DE ENTREGA</span>
-                    {order.estimatedDeliveryStart && order.estimatedDeliveryEnd ? (
+                    {order.status === 'delivered' ? (
                       <>
-                        <h2>{formatEstimatedDelivery(order.estimatedDeliveryStart, order.estimatedDeliveryEnd)}</h2>
-                        <p>
-                          {order.estimatedDeliveryStart === order.estimatedDeliveryEnd
-                            ? 'Esta es la fecha estimada para recibir tu pedido.'
-                            : 'Te avisaremos cuando tu pedido esté próximo a llegar.'}
-                        </p>
+                        <span className="eyebrow section-eyebrow">ENTREGA CONFIRMADA</span>
+                        <h2>{formatDeliveredAt(
+                          order.statusHistory
+                            .filter((event) => event.status === 'delivered')
+                            .reduce<string | null>((latest, event) =>
+                              !latest || event.at > latest ? event.at : latest,
+                            null),
+                        )}</h2>
+                        <p>Tu pedido ya llegó. ¡Gracias por comprar en Lúmina!</p>
                       </>
                     ) : (
                       <>
-                        <h2>Estamos confirmando la fecha</h2>
-                        <p>El plazo aparecerá acá cuando el equipo confirme el tipo de envío y las fechas.</p>
+                        <span className="eyebrow section-eyebrow">FECHA ESTIMADA DE ENTREGA</span>
+                        {order.estimatedDeliveryStart && order.estimatedDeliveryEnd ? (
+                          <>
+                            <h2>{formatEstimatedDelivery(order.estimatedDeliveryStart, order.estimatedDeliveryEnd)}</h2>
+                            <p>
+                              {order.estimatedDeliveryStart === order.estimatedDeliveryEnd
+                                ? 'Esta es la fecha estimada para recibir tu pedido.'
+                                : 'Te avisaremos cuando tu pedido esté próximo a llegar.'}
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <h2>Estamos confirmando la fecha</h2>
+                            <p>El plazo aparecerá acá cuando el equipo confirme el tipo de envío y las fechas.</p>
+                          </>
+                        )}
                       </>
                     )}
                   </section>

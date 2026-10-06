@@ -41,3 +41,24 @@ export function getArgentinaDateInputValue(date = new Date()): string {
   if (!year || !month || !day) throw new Error('No se pudo determinar la fecha de Argentina.')
   return `${year}-${month}-${day}`
 }
+
+/**
+ * Presents a completed delivery from its recorded event time, never the stale
+ * estimate that was set while the order was still in transit.
+ */
+export function formatDeliveredAt(deliveredAt: string | null, now = new Date()): string {
+  if (!deliveredAt) return 'Entrega confirmada'
+  const deliveredDate = getArgentinaDateInputValue(new Date(deliveredAt))
+  const today = getArgentinaDateInputValue(now)
+  const [year, month, day] = today.split('-').map(Number)
+  const yesterday = new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10)
+  if (deliveredDate === today) return 'Entregado hoy'
+  if (deliveredDate === yesterday) return 'Entregado ayer'
+
+  const formattedDate = new Intl.DateTimeFormat('es-AR', {
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'UTC',
+  }).format(new Date(`${deliveredDate}T12:00:00Z`))
+  return `Entregado el ${formattedDate}`
+}

@@ -83,6 +83,7 @@ export type CustomerOrderSummary = {
   status: string
   total: number
   createdAt: string | null
+  deliveredAt: string | null
   shipmentType: ShipmentType | null
   estimatedDeliveryStart: string | null
   estimatedDeliveryEnd: string | null
@@ -96,6 +97,7 @@ function isCustomerOrderSummary(value: unknown): value is CustomerOrderSummary {
     'status' in value && typeof value.status === 'string' &&
     'total' in value && typeof value.total === 'number' && Number.isFinite(value.total) &&
     'createdAt' in value && (typeof value.createdAt === 'string' || value.createdAt === null) &&
+    'deliveredAt' in value && (typeof value.deliveredAt === 'string' || value.deliveredAt === null) &&
     'shipmentType' in value && (value.shipmentType === 'local' || value.shipmentType === 'international' || value.shipmentType === null) &&
     'estimatedDeliveryStart' in value && (typeof value.estimatedDeliveryStart === 'string' || value.estimatedDeliveryStart === null) &&
     'estimatedDeliveryEnd' in value && (typeof value.estimatedDeliveryEnd === 'string' || value.estimatedDeliveryEnd === null) &&

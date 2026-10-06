@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { CustomerOrderSummary } from '../lib/commerceApi'
-import { formatEstimatedDelivery } from '../lib/deliveryEstimate'
+import { formatDeliveredAt, formatEstimatedDelivery } from '../lib/deliveryEstimate'
 import { ThemeToggleButton } from '../lib/theme'
 
 type Props = {
@@ -138,7 +138,11 @@ export function CustomerOrdersPage({
                         {getStatusLabel(order)}
                       </span>
                     </div>
-                    {order.shipmentType && order.estimatedDeliveryStart && order.estimatedDeliveryEnd && (
+                    {order.status === 'delivered' ? (
+                      <p className="customer-order-eta">
+                        {formatDeliveredAt(order.deliveredAt)}
+                      </p>
+                    ) : order.shipmentType && order.estimatedDeliveryStart && order.estimatedDeliveryEnd && (
                       <p className="customer-order-eta">
                         {formatEstimatedDelivery(order.estimatedDeliveryStart, order.estimatedDeliveryEnd)}
                       </p>
