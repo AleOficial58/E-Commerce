@@ -58,6 +58,7 @@ import { OrderMessages } from './components/OrderMessages'
 import { NotificationCenter } from './components/NotificationCenter'
 import { useNotificationStore } from './lib/notificationStore'
 import { getArgentinaDateInputValue } from './lib/deliveryEstimate'
+import { getOrderStatusLabel, getPaymentStatusLabel } from './lib/orderLabels'
 import { ThemeToggleButton } from './lib/theme'
 import './App.css'
 
@@ -170,21 +171,6 @@ const money = new Intl.NumberFormat('es-AR', {
   currency: 'ARS',
   maximumFractionDigits: 0,
 })
-
-function getOrderStatusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    new: 'Compra confirmada',
-    preparing: 'En preparación',
-    shipped: 'En camino',
-    delivered: 'Entregada',
-    payment_review: 'Pago en revisión',
-    payment_failed: 'Pago no completado',
-    payment_expired: 'Pago vencido',
-    cancellation_refund_pending: 'Reembolso en proceso',
-    cancelled: 'Compra cancelada',
-  }
-  return labels[status] ?? 'Estado actualizado'
-}
 
 function getShipmentStageLabel(stage: string): string {
   const labels: Record<string, string> = {
@@ -1248,13 +1234,7 @@ function Storefront() {
         const changes: string[] = []
         if (statusChanged) changes.push(getOrderStatusLabel(order.status))
         if (paymentChanged) {
-          changes.push(order.paymentStatus === 'approved'
-            ? 'Pago acreditado'
-            : order.paymentStatus === 'refunded'
-              ? 'Pago reembolsado'
-              : order.paymentStatus === 'pending'
-                ? 'Pago pendiente'
-                : 'Estado de pago actualizado')
+          changes.push(getPaymentStatusLabel(order.paymentStatus))
         }
         addNotification({
           id: order.paymentStatus === 'approved'
@@ -3993,11 +3973,11 @@ function Storefront() {
                   <article className="admin-order-card" key={order.id}>
                     <div className="admin-order-heading">
                       <div><span className="admin-order-id">Pedido {order.id.slice(0, 8).toLocaleUpperCase('es-AR')}</span><small>{order.createdAt?._seconds ? new Date(order.createdAt._seconds * 1000).toLocaleString('es-AR') : 'Pedido reciente'}</small></div>
-                      <span className={`admin-order-status status-${order.status}`}>{order.status === 'pending_payment' ? 'Pago pendiente' : order.status === 'payment_failed' ? 'Pago no completado' : order.status === 'payment_expired' ? 'Pago vencido' : order.status === 'payment_review' ? 'Revisión necesaria' : order.status === 'new' ? 'Nuevo' : order.status === 'preparing' ? 'Preparando' : order.status === 'shipped' ? 'Enviado' : order.status === 'delivered' ? 'Entregado' : order.status}</span>
+                      <span className={`admin-order-status status-${order.status}`}>{getOrderStatusLabel(order.status)}</span>
                     </div>
                     <div className="admin-order-customer"><strong>{order.customerName}</strong><span>{order.customerEmail}</span><span>{order.shipping.address}{order.shipping.apartment ? `, ${order.shipping.apartment}` : ''}, {order.shipping.city}, {order.shipping.province} {order.shipping.postalCode}</span></div>
                     <div className="admin-order-items">{order.items.map((item) => <div key={item.id}><span>{item.quantity} × {item.name}</span><strong>{money.format(item.lineTotal)}</strong></div>)}</div>
-                    <div className="admin-order-total"><span>{order.paymentStatus === 'approved' ? 'Pago acreditado' : order.paymentStatus === 'pending' ? 'Esperando confirmación de pago' : `Pago: ${order.paymentStatus}`} · envío {order.shippingCost ? money.format(order.shippingCost) : 'gratis'}</span><strong>{money.format(order.total)}</strong></div>
+                    <div className="admin-order-total"><span>{getPaymentStatusLabel(order.paymentStatus)} · envío {order.shippingCost ? money.format(order.shippingCost) : 'gratis'}</span><strong>{money.format(order.total)}</strong></div>
                     {order.paymentStatus === 'approved' && (
                       <details className="admin-shipment-editor">
                         <summary>Configurar envío y seguimiento</summary>
