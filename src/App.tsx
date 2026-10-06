@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { User } from 'firebase/auth'
 import type { SweetAlertOptions } from 'sweetalert2'
@@ -81,6 +81,8 @@ type IconName =
   | 'settings'
   | 'sparkles'
   | 'user'
+
+const emptyReviewSummary: ReviewSummary = { ratingAverage: 0, reviewCount: 0 }
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const common = {
@@ -940,12 +942,21 @@ type ProductCardProps = {
   isFavorite: boolean
   addedToCart: boolean
   disabled: boolean
-  onFavorite: () => void
-  onAdd: () => void
-  onOpen: () => void
+  onFavorite: (productId: string) => void
+  onAdd: (product: Product) => void
+  onOpen: (product: Product) => void
 }
 
-function ProductCard({ product, summary, isFavorite, addedToCart, disabled, onFavorite, onAdd, onOpen }: ProductCardProps) {
+const ProductCard = memo(function ProductCard({
+  product,
+  summary,
+  isFavorite,
+  addedToCart,
+  disabled,
+  onFavorite,
+  onAdd,
+  onOpen,
+}: ProductCardProps) {
   return (
     <article className="product-card">
       <div className={`product-image image-${product.imageTone}`}>
@@ -953,14 +964,14 @@ function ProductCard({ product, summary, isFavorite, addedToCart, disabled, onFa
         {product.badge && <span className={`product-badge${product.badge === 'Más elegido' ? ' badge-pink' : ''}${product.originalPrice && product.originalPrice > product.price ? ' badge-offer' : ''}`}>{product.badge === 'Más elegido' ? 'Selección Lúmina' : product.badge}</span>}
         <button
           className={`favorite-button ${isFavorite ? 'is-favorite' : ''}`}
-          onClick={onFavorite}
+          onClick={() => onFavorite(product.id)}
           disabled={disabled}
           aria-label={isFavorite ? `Quitar ${product.name} de favoritos` : `Guardar ${product.name} en favoritos`}
           aria-pressed={isFavorite}
         >
           <Icon name="heart" size={19} />
         </button>
-        <button className={`quick-add${addedToCart ? ' is-added' : ''}`} onClick={onAdd} disabled={disabled} aria-live="polite">
+        <button className={`quick-add${addedToCart ? ' is-added' : ''}`} onClick={() => onAdd(product)} disabled={disabled} aria-live="polite">
           <Icon name={addedToCart ? 'check' : 'plus'} size={17} /> {addedToCart ? 'Agregado al bolso' : 'Agregar al bolso'}
         </button>
       </div>
@@ -968,8 +979,8 @@ function ProductCard({ product, summary, isFavorite, addedToCart, disabled, onFa
         <div className="product-meta"><span>{product.category}</span><span className="product-rating" aria-label={summary.reviewCount ? `${summary.ratingAverage.toFixed(1)} sobre 5, ${summary.reviewCount} opiniones` : 'Sin opiniones verificadas'}>
           {summary.reviewCount ? <>★ <b>{summary.ratingAverage.toFixed(1)}</b> <small>({summary.reviewCount})</small></> : <small>Sin opiniones</small>}
         </span></div>
-        <h3><button className="product-details-link" type="button" onClick={onOpen}>{product.name}</button></h3>
-        <button className="product-reviews-link" type="button" onClick={onOpen}>
+        <h3><button className="product-details-link" type="button" onClick={() => onOpen(product)}>{product.name}</button></h3>
+        <button className="product-reviews-link" type="button" onClick={() => onOpen(product)}>
           {summary.reviewCount ? `Ver opiniones (${summary.reviewCount})` : 'Ver detalle y opiniones'}
         </button>
         <div className="product-price">
@@ -979,7 +990,7 @@ function ProductCard({ product, summary, isFavorite, addedToCart, disabled, onFa
       </div>
     </article>
   )
-}
+})
 
 type ProductRailProps = {
   id: string
@@ -1033,13 +1044,13 @@ function ProductRail({
           <ProductCard
             key={product.id}
             product={product}
-            summary={reviewSummaries[product.id] ?? { ratingAverage: 0, reviewCount: 0 }}
+            summary={reviewSummaries[product.id] ?? emptyReviewSummary}
             isFavorite={favorites.includes(product.id)}
             addedToCart={addedProductId === product.id}
             disabled={disabled}
-            onFavorite={() => onFavorite(product.id)}
-            onAdd={() => onAdd(product)}
-            onOpen={() => onOpenProduct(product)}
+            onFavorite={onFavorite}
+            onAdd={onAdd}
+            onOpen={onOpenProduct}
           />
         ))}
       </div>
@@ -1149,6 +1160,7 @@ function Storefront() {
   const [customerProfileLoadedForUid, setCustomerProfileLoadedForUid] = useState<string | null>(null)
   const [customerProfileError, setCustomerProfileError] = useState('')
   const [profileEditorOpen, setProfileEditorOpen] = useState(false)
+  const interactionStateRef = useRef({ favorites, cart, storeLoading, authLoading })
   const searchInputRef = useRef<HTMLInputElement>(null)
   const shoppingGuideTriggerRef = useRef<HTMLButtonElement>(null)
   const shoppingGuideCloseRef = useRef<HTMLButtonElement>(null)
@@ -1174,6 +1186,10 @@ function Storefront() {
   const { addNotification } = notificationStore
   const hasBlockingOverlay = authOpen || accountOpen || cartOpen || checkoutOpen ||
     profileEditorOpen || shoppingGuideOpen
+
+  useEffect(() => {
+    interactionStateRef.current = { favorites, cart, storeLoading, authLoading }
+  }, [favorites, cart, storeLoading, authLoading])
 
   useEffect(() => {
     try {
@@ -2149,35 +2165,19 @@ function Storefront() {
     setReviewSummaries((current) => ({ ...current, [productId]: summary }))
     setReviewSummaryError('')
   }, [])
-
-  if (authLoading) {
-    return (
-      <div className="brand-loading" role="status" aria-live="polite">
-        <div className="loading-orbit loading-orbit-outer" aria-hidden="true" />
-        <div className="loading-orbit loading-orbit-inner" aria-hidden="true" />
-        <div className="loading-brand">
-          <span className="loading-wordmark">lúmina<span>✳</span></span>
-          <span className="loading-tagline">UN DETALLE, TODO TU ESTILO</span>
-        </div>
-        <div className="loading-progress" aria-hidden="true"><span /></div>
-        <p>Preparando tu espacio</p>
-      </div>
-    )
-  }
-
-  function toggleFavorite(id: string) {
-    if (storeLoading || authLoading) return
-    const removing = favorites.includes(id)
+  const toggleFavorite = useCallback((id: string) => {
+    if (interactionStateRef.current.storeLoading || interactionStateRef.current.authLoading) return
+    const removing = interactionStateRef.current.favorites.includes(id)
     setFavorites((current) => removing
       ? current.filter((favoriteId) => favoriteId !== id)
       : [...current, id])
     setNotice(removing ? 'Se quitó de tus favoritos.' : 'Guardado en tus favoritos.')
-  }
-
-  function addToCart(product: Product, requestedQuantity = 1): boolean {
-    if (storeLoading || authLoading) return false
+  }, [])
+  const addToCart = useCallback((product: Product, requestedQuantity = 1): boolean => {
+    if (interactionStateRef.current.storeLoading || interactionStateRef.current.authLoading) return false
     const stock = product.stock ?? 50
-    const available = Math.max(0, Math.min(stock, MAX_ORDER_QUANTITY) - (cart[product.id] ?? 0))
+    const existingQuantity = interactionStateRef.current.cart[product.id] ?? 0
+    const available = Math.max(0, Math.min(stock, MAX_ORDER_QUANTITY) - existingQuantity)
     const quantity = Math.min(Math.max(1, requestedQuantity), available)
     if (quantity < 1) {
       setNotice(stock < 1 ? 'Este producto no tiene stock disponible.' : 'Ya agregaste todas las unidades disponibles.')
@@ -2195,14 +2195,28 @@ function Storefront() {
     }, 1400)
     setNotice(`${quantity} ${quantity === 1 ? 'unidad' : 'unidades'} de ${product.name} se sumaron a tu bolso`)
     return true
-  }
-
-  function openProductDetails(product: Product) {
+  }, [])
+  const openProductDetails = useCallback((product: Product) => {
     if (getProductRouteId() !== product.id) {
       window.history.pushState({ luminaProduct: true }, '', `/producto/${encodeURIComponent(product.id)}`)
     }
     setProductRouteId(product.id)
     window.scrollTo({ top: 0, behavior: 'instant' })
+  }, [])
+
+  if (authLoading) {
+    return (
+      <div className="brand-loading" role="status" aria-live="polite">
+        <div className="loading-orbit loading-orbit-outer" aria-hidden="true" />
+        <div className="loading-orbit loading-orbit-inner" aria-hidden="true" />
+        <div className="loading-brand">
+          <span className="loading-wordmark">lúmina<span>✳</span></span>
+          <span className="loading-tagline">UN DETALLE, TODO TU ESTILO</span>
+        </div>
+        <div className="loading-progress" aria-hidden="true"><span /></div>
+        <p>Preparando tu espacio</p>
+      </div>
+    )
   }
 
   function closeProductDetails() {
@@ -3487,13 +3501,13 @@ function Storefront() {
               <ProductCard
                 key={product.id}
                 product={product}
-                summary={reviewSummaries[product.id] ?? { ratingAverage: 0, reviewCount: 0 }}
+                summary={reviewSummaries[product.id] ?? emptyReviewSummary}
                 isFavorite={favorites.includes(product.id)}
                 addedToCart={cartFeedbackProductId === product.id}
                 disabled={storeLoading || authLoading}
-                onFavorite={() => toggleFavorite(product.id)}
-                onAdd={() => addToCart(product)}
-                onOpen={() => openProductDetails(product)}
+                onFavorite={toggleFavorite}
+                onAdd={addToCart}
+                onOpen={openProductDetails}
               />
             ))}
           </div>
