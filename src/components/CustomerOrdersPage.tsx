@@ -13,18 +13,19 @@ type Props = {
   onOpenOrder: (orderId: string) => void
 }
 
-type OrderGroup = 'active' | 'delivered' | 'pending' | 'cancelled'
+type OrderGroup = 'active' | 'delivered' | 'pending' | 'refunds' | 'cancelled'
 
 const orderGroups: { id: OrderGroup; label: string }[] = [
   { id: 'active', label: 'En curso' },
   { id: 'delivered', label: 'Entregadas' },
   { id: 'pending', label: 'Pendientes' },
+  { id: 'refunds', label: 'Reembolsos' },
   { id: 'cancelled', label: 'Canceladas' },
 ]
 
 function getOrderGroup(order: CustomerOrderSummary): OrderGroup {
+  if (order.status === 'cancellation_refund_pending') return 'refunds'
   if (
-    order.status === 'cancellation_refund_pending' ||
     order.status === 'cancelled' ||
     order.paymentStatus === 'cancelled' ||
     order.paymentStatus === 'refunded'
@@ -60,6 +61,9 @@ export function CustomerOrdersPage({
 }: Props) {
   const [activeGroup, setActiveGroup] = useState<OrderGroup>('active')
   const visibleOrders = orders.filter((order) => getOrderGroup(order) === activeGroup)
+  const pendingRefundCount = orders.filter((order) =>
+    order.status === 'cancellation_refund_pending',
+  ).length
 
   return (
     <main className="customer-orders-page">
@@ -97,6 +101,18 @@ export function CustomerOrdersPage({
           </section>
         ) : orders.length ? (
           <>
+            {pendingRefundCount > 0 && (
+              <aside className="customer-refund-notice" role="status">
+                <span>
+                  {pendingRefundCount === 1
+                    ? 'Tenés un reembolso en proceso con Mercado Pago.'
+                    : `Tenés ${pendingRefundCount} reembolsos en proceso con Mercado Pago.`}
+                </span>
+                <button type="button" onClick={() => setActiveGroup('refunds')}>
+                  Ver estado
+                </button>
+              </aside>
+            )}
             <div className="customer-order-tabs" role="group" aria-label="Filtrar compras">
               {orderGroups.map((group) => {
                 const count = orders.filter((order) => getOrderGroup(order) === group.id).length
@@ -142,6 +158,10 @@ export function CustomerOrdersPage({
                       <p className="customer-order-eta">
                         {formatDeliveredAt(order.deliveredAt)}
                       </p>
+                    ) : order.status === 'cancellation_refund_pending' ? (
+                      <p className="customer-order-refund-note">
+                        La compra está cancelada y el pedido no se despachará mientras Mercado Pago confirma el reembolso.
+                      </p>
                     ) : order.shipmentType && order.estimatedDeliveryStart && order.estimatedDeliveryEnd && (
                       <p className="customer-order-eta">
                         {formatEstimatedDelivery(order.estimatedDeliveryStart, order.estimatedDeliveryEnd)}
@@ -174,6 +194,8 @@ export function CustomerOrdersPage({
                       ? 'Cuando un pedido sea entregado, lo vas a encontrar acá.'
                       : activeGroup === 'pending'
                         ? 'No tenés pagos pendientes de confirmación.'
+                        : activeGroup === 'refunds'
+                          ? 'No tenés reembolsos en proceso.'
                         : 'No tenés compras canceladas.'}
                 </p>
               </section>

@@ -3741,6 +3741,49 @@ main {
   font-weight: 600;
 }
 
+.customer-order-refund-note {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #ead6c7;
+  border-radius: 8px;
+  background: #fff7ef;
+  color: #795746;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.customer-refund-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 12px 15px;
+  border: 1px solid #ead6c7;
+  border-radius: 9px;
+  background: #fff7ef;
+  color: #694a3b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.customer-refund-notice button {
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  border: 1px solid #a57964;
+  border-radius: 999px;
+  background: transparent;
+  color: #704d3e;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.customer-refund-notice button:hover {
+  background: #f5e8dd;
+}
+
 .customer-order-card-body {
   display: flex;
   align-items: center;
@@ -7587,6 +7630,22 @@ html[data-theme='dark'] .order-delivery-estimate p {
 html[data-theme='dark'] .order-cancel-area {
   border-color: #51414b;
   background: #302831;
+}
+
+html[data-theme='dark'] .customer-refund-notice,
+html[data-theme='dark'] .customer-order-refund-note {
+  border-color: #705a4d;
+  background: #332b28;
+  color: #f0d2bc;
+}
+
+html[data-theme='dark'] .customer-refund-notice button {
+  border-color: #9e7d69;
+  color: #f0d2bc;
+}
+
+html[data-theme='dark'] .customer-refund-notice button:hover {
+  background: #42352f;
 }
 
 html[data-theme='dark'] .order-cancel-area p {
