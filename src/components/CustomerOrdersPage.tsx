@@ -37,7 +37,8 @@ function getOrderGroup(order: CustomerOrderSummary): OrderGroup {
 
 function getStatusLabel(order: CustomerOrderSummary): string {
   if (order.status === 'cancellation_refund_pending') return 'Reembolso en proceso'
-  if (order.status === 'cancelled' || order.paymentStatus === 'refunded') return 'Compra cancelada'
+  if (order.paymentStatus === 'refunded') return 'Reembolso confirmado'
+  if (order.status === 'cancelled' || order.paymentStatus === 'cancelled') return 'Compra cancelada'
   if (order.paymentStatus !== 'approved') {
     if (order.status === 'payment_review') return 'En revisión'
     if (order.status === 'payment_failed') return 'Pago no completado'
@@ -61,6 +62,11 @@ export function CustomerOrdersPage({
 }: Props) {
   const [activeGroup, setActiveGroup] = useState<OrderGroup>('active')
   const visibleOrders = orders.filter((order) => getOrderGroup(order) === activeGroup)
+  const isCancellationOrder = (order: CustomerOrderSummary) =>
+    order.status === 'cancellation_refund_pending' ||
+    order.status === 'cancelled' ||
+    order.paymentStatus === 'cancelled' ||
+    order.paymentStatus === 'refunded'
   const pendingRefundCount = orders.filter((order) =>
     order.status === 'cancellation_refund_pending',
   ).length
@@ -158,9 +164,15 @@ export function CustomerOrdersPage({
                       <p className="customer-order-eta">
                         {formatDeliveredAt(order.deliveredAt)}
                       </p>
-                    ) : order.status === 'cancellation_refund_pending' ? (
-                      <p className="customer-order-refund-note">
-                        La compra está cancelada y el pedido no se despachará mientras Mercado Pago confirma el reembolso.
+                    ) : isCancellationOrder(order) ? (
+                      <p className="customer-order-cancelled-note">
+                        {order.status === 'cancellation_refund_pending'
+                          ? 'La compra está cancelada. El pedido no se despachará mientras Mercado Pago confirma el reembolso.'
+                          : order.paymentStatus === 'refunded'
+                            ? 'La compra fue cancelada y Mercado Pago confirmó el reembolso.'
+                            : order.paymentStatus === 'cancelled'
+                              ? 'La compra se canceló antes de acreditarse el pago; no se realizó ningún cobro.'
+                              : 'La compra fue cancelada y no continuará con el envío.'}
                       </p>
                     ) : order.shipmentType && order.estimatedDeliveryStart && order.estimatedDeliveryEnd && (
                       <p className="customer-order-eta">

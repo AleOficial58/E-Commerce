@@ -208,6 +208,12 @@ export function OrderStatusPage({
   const showDeliveryCelebration = detailMode &&
     deliveryCelebration &&
     order?.status === 'delivered'
+  const isCancellationOrder = Boolean(order && (
+    order.status === 'cancellation_refund_pending' ||
+    order.status === 'cancelled' ||
+    order.paymentStatus === 'cancelled' ||
+    order.paymentStatus === 'refunded'
+  ))
   const orderHelpOptions = order?.status === 'delivered'
     ? [
         ['Consultar una devolución o reembolso', 'Hola, mi pedido figura como entregado y quiero consultar los pasos para una devolución o un posible reembolso. ¿Me pueden orientar?'],
@@ -383,7 +389,10 @@ export function OrderStatusPage({
                 </div>
               )}
 
-              {status === 'approved' && order?.paymentStatus === 'approved' && !showPurchaseCelebration && (
+              {status === 'approved' &&
+                order?.paymentStatus === 'approved' &&
+                !isCancellationOrder &&
+                !showPurchaseCelebration && (
                 <>
                   <ol
                     className={`order-timeline ${
@@ -468,7 +477,11 @@ export function OrderStatusPage({
                 </div>
               )}
               {(order?.status === 'cancelled' || order?.paymentStatus === 'refunded') && (
-                <div className="order-status-note">La compra ya no avanzará en el proceso de envío.</div>
+                <div className="order-status-note">
+                  {order.paymentStatus === 'refunded'
+                    ? 'La compra fue cancelada y Mercado Pago confirmó el reembolso.'
+                    : 'La compra fue cancelada y no continuará con el envío.'}
+                </div>
               )}
               {status === 'pending' && (
                 <div className="order-status-note">No vuelvas a pagar mientras Mercado Pago procesa la operación.</div>

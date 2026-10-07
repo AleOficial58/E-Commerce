@@ -3741,7 +3741,7 @@ main {
   font-weight: 600;
 }
 
-.customer-order-refund-note {
+.customer-order-cancelled-note {
   margin: 14px 0 0;
   padding: 10px 12px;
   border: 1px solid #ead6c7;
@@ -7633,7 +7633,7 @@ html[data-theme='dark'] .order-cancel-area {
 }
 
 html[data-theme='dark'] .customer-refund-notice,
-html[data-theme='dark'] .customer-order-refund-note {
+html[data-theme='dark'] .customer-order-cancelled-note {
   border-color: #705a4d;
   background: #332b28;
   color: #f0d2bc;
