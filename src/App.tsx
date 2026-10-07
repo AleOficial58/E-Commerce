@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { User } from 'firebase/auth'
-import type { SweetAlertOptions } from 'sweetalert2'
 import { firebaseReady, getFirebaseServices } from './lib/firebase'
 import {
   loadAndMergeUserStore,
@@ -60,15 +59,8 @@ import { useNotificationStore } from './lib/notificationStore'
 import { getArgentinaDateInputValue } from './lib/deliveryEstimate'
 import { getOrderStatusLabel, getPaymentStatusLabel } from './lib/orderLabels'
 import { ThemeToggleButton } from './lib/theme'
+import { showConfirmation } from './lib/sweetAlert'
 import './App.css'
-
-async function showConfirmation(options: SweetAlertOptions) {
-  const [{ default: Swal }] = await Promise.all([
-    import('sweetalert2'),
-    import('sweetalert2/dist/sweetalert2.min.css'),
-  ])
-  return Swal.fire(options)
-}
 
 type IconName =
   | 'arrow'

@@ -53,6 +53,8 @@ Las fechas estimadas exactas se presentan con expresiones claras según el calen
 
 El detalle de seguimiento elige la secuencia de etapas por el tipo de envío y, si ese dato no existe en pedidos anteriores, por la etapa real registrada. Así, un pedido en tránsito no queda sin una etapa activa ni muestra una secuencia genérica que contradiga el título.
 
+La celebración especial de entrega se reserva para el momento en que se detecta el cambio a entregado; al volver a consultar, se muestra el seguimiento estable. Para pedidos entregados, la ayuda ofrece consultas de devolución/reembolso, problemas con el producto u otras dudas de entrega, y aclara que el contacto no confirma ni procesa automáticamente un reintegro. Las acciones propias de pedidos aún en camino no se muestran en ese estado. La cancelación previa al despacho pide confirmación mediante SweetAlert antes de solicitar la cancelación y, si corresponde, el reembolso a Mercado Pago.
+
 En Administración, la configuración de envío solo está disponible para pedidos con pago aprobado que todavía no se hayan entregado; los mensajes del pedido permanecen disponibles para consultas posteriores. En escritorio, las secciones de navegación se muestran sin una barra de desplazamiento horizontal, mientras que en pantallas angostas mantienen desplazamiento lateral. El alto contraste conserva texto legible y usa límites más discretos para evitar que cada bloque interno parezca una tarjeta independiente.
 
 ### Datos principales y relaciones

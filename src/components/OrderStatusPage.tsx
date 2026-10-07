@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { User } from 'firebase/auth'
 import type { CustomerOrderStatus, OrderMessage } from '../lib/commerceApi'
 import { formatDeliveredAt, formatEstimatedDelivery } from '../lib/deliveryEstimate'
+import { showConfirmation } from '../lib/sweetAlert'
 import { ThemeToggleButton } from '../lib/theme'
 import { OrderMessages } from './OrderMessages'
 
@@ -207,6 +208,55 @@ export function OrderStatusPage({
   const showDeliveryCelebration = detailMode &&
     deliveryCelebration &&
     order?.status === 'delivered'
+  const orderHelpOptions = order?.status === 'delivered'
+    ? [
+        ['Consultar una devolución o reembolso', 'Hola, mi pedido figura como entregado y quiero consultar los pasos para una devolución o un posible reembolso. ¿Me pueden orientar?'],
+        ['Informar un problema con el producto', 'Hola, recibí mi pedido y necesito ayuda con un problema en uno de los productos.'],
+        ['Tengo otra consulta sobre la entrega', 'Hola, tengo una consulta sobre mi pedido que figura como entregado.'],
+      ]
+    : [
+        ['Necesito que llegue', 'Hola, necesito consultar si es posible recibir el pedido antes de la fecha estimada.'],
+        ['Quiero cancelar mi compra', 'Hola, quiero consultar si todavía es posible cancelar esta compra.'],
+        ['Cambiar la dirección de entrega', 'Hola, necesito consultar si todavía es posible cambiar la dirección de entrega.'],
+        ['No voy a estar para recibir la compra', 'Hola, no voy a estar disponible para recibir el pedido. ¿Cómo podemos coordinar?'],
+        ['Necesito ayuda con una devolución', 'Hola, necesito ayuda con una devolución relacionada con esta compra.'],
+      ]
+
+  async function handleCancelPurchase() {
+    if (!onCancel || cancelLoading) return
+    const confirmation = await showConfirmation({
+      icon: 'warning',
+      iconColor: '#a76f7d',
+      title: '¿Cancelar esta compra?',
+      text: 'Si el pago ya fue aprobado, solicitaremos el reembolso a Mercado Pago. Esta acción no se puede deshacer.',
+      showCancelButton: true,
+      confirmButtonText: 'Sí, cancelar compra',
+      cancelButtonText: 'Volver',
+      reverseButtons: true,
+      customClass: {
+        popup: 'lumina-alert-popup',
+        title: 'lumina-alert-title',
+        htmlContainer: 'lumina-alert-text',
+        confirmButton: 'lumina-alert-confirm',
+        cancelButton: 'lumina-alert-cancel',
+        actions: 'lumina-alert-actions',
+      },
+      buttonsStyling: false,
+    })
+    if (!confirmation.isConfirmed) return
+
+    setCancelLoading(true)
+    setCancelError('')
+    try {
+      const result = await onCancel()
+      setCancelMessage(result.message)
+      onRefresh()
+    } catch (error) {
+      setCancelError(error instanceof Error ? error.message : 'No se pudo cancelar la compra.')
+    } finally {
+      setCancelLoading(false)
+    }
+  }
 
   async function handleReceiptAction(action: 'download' | 'print') {
     if (
@@ -491,16 +541,16 @@ export function OrderStatusPage({
             )}
             {detailMode && (
               <section className="order-page-card order-help" aria-labelledby="order-help-title">
-                <h2 id="order-help-title">Ayuda con la compra</h2>
-                <p>Escribinos por el chat si necesitás ayuda. Para cancelar antes del despacho, usá la opción de cancelación del detalle.</p>
+                <h2 id="order-help-title">
+                  {order?.status === 'delivered' ? 'Ayuda después de la entrega' : 'Ayuda con la compra'}
+                </h2>
+                <p>
+                  {order?.status === 'delivered'
+                    ? 'Si necesitás una devolución o consultar un posible reembolso, escribinos. El equipo te indicará los pasos y revisará el caso; el reintegro no se realiza automáticamente desde esta consulta.'
+                    : 'Escribinos por el chat si necesitás ayuda. Para cancelar antes del despacho, usá la opción de cancelación del detalle.'}
+                </p>
                 <div className="order-help-actions">
-                  {[
-                    ['Necesito que llegue', 'Hola, necesito consultar si es posible recibir el pedido antes de la fecha estimada.'],
-                    ['Quiero cancelar mi compra', 'Hola, quiero consultar si todavía es posible cancelar esta compra.'],
-                    ['Cambiar la dirección de entrega', 'Hola, necesito consultar si todavía es posible cambiar la dirección de entrega.'],
-                    ['No voy a estar para recibir la compra', 'Hola, no voy a estar disponible para recibir el pedido. ¿Cómo podemos coordinar?'],
-                    ['Necesito ayuda con una devolución', 'Hola, necesito ayuda con una devolución relacionada con esta compra.'],
-                  ].map(([label, prompt]) => (
+                  {orderHelpOptions.map(([label, prompt]) => (
                     <button
                       type="button"
                       key={label}
@@ -589,20 +639,7 @@ export function OrderStatusPage({
                   className="order-cancel-button"
                   type="button"
                   disabled={cancelLoading}
-                  onClick={() => {
-                    if (!window.confirm('¿Querés cancelar esta compra? Si el pago ya fue aprobado, solicitaremos el reembolso a Mercado Pago.')) return
-                    setCancelLoading(true)
-                    setCancelError('')
-                    void onCancel()
-                      .then((result) => {
-                        setCancelMessage(result.message)
-                        onRefresh()
-                      })
-                      .catch((error: unknown) => {
-                        setCancelError(error instanceof Error ? error.message : 'No se pudo cancelar la compra.')
-                      })
-                      .finally(() => setCancelLoading(false))
-                  }}
+                  onClick={() => void handleCancelPurchase()}
                 >
                   {cancelLoading ? 'Procesando cancelación…' : 'Cancelar compra'}
                 </button>
