@@ -2805,7 +2805,7 @@ function Storefront() {
         customClass: {
           popup: 'lumina-alert-popup',
           title: 'lumina-alert-title',
-          htmlContainer: 'lumina-alert-text',
+          htmlContainer: 'lumina-alert-message',
           confirmButton: 'lumina-alert-confirm',
           cancelButton: 'lumina-alert-cancel',
           actions: 'lumina-alert-actions',
@@ -2841,7 +2841,7 @@ function Storefront() {
       customClass: {
         popup: 'lumina-alert-popup',
         title: 'lumina-alert-title',
-        htmlContainer: 'lumina-alert-text',
+        htmlContainer: 'lumina-alert-message',
         confirmButton: 'lumina-alert-confirm',
         cancelButton: 'lumina-alert-cancel',
         actions: 'lumina-alert-actions',
