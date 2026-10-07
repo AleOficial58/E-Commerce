@@ -253,6 +253,7 @@ export function OrderStatusPage({
       onRefresh()
     } catch (error) {
       setCancelError(error instanceof Error ? error.message : 'No se pudo cancelar la compra.')
+      onRefresh()
     } finally {
       setCancelLoading(false)
     }
