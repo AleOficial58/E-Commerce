@@ -134,15 +134,20 @@ export function OrderStatusPage({
   const [cancelMessage, setCancelMessage] = useState('')
   const [receiptBusy, setReceiptBusy] = useState(false)
   const [receiptError, setReceiptError] = useState('')
-  const fulfillmentSteps = order?.shipmentType === 'international'
+  const fulfillmentStage = order ? getOrderFulfillmentStage(order) : ''
+  const usesInternationalTimeline = order?.shipmentType === 'international' ||
+    ['international_transit', 'customs', 'in_argentina'].includes(fulfillmentStage)
+  const usesLocalTimeline = order?.shipmentType === 'local' ||
+    ['local_transit', 'out_for_delivery'].includes(fulfillmentStage) ||
+    (order?.status === 'shipped' && !usesInternationalTimeline)
+  const fulfillmentSteps = usesInternationalTimeline
     ? internationalShipmentSteps
-    : order?.shipmentType === 'local'
+    : usesLocalTimeline
       ? localShipmentSteps
       : genericShipmentSteps
   const activeStep = (() => {
     if (status !== 'approved' || !order) return -1
-    const stage = getOrderFulfillmentStage(order)
-    return fulfillmentSteps.findIndex((step) => step.status === stage)
+    return fulfillmentSteps.findIndex((step) => step.status === fulfillmentStage)
   })()
   const paymentLabel = order?.paymentStatus === 'refunded'
     ? 'Reembolsado'
@@ -331,9 +336,9 @@ export function OrderStatusPage({
                 <>
                   <ol
                     className={`order-timeline ${
-                      order?.shipmentType === 'international'
+                      usesInternationalTimeline
                         ? 'is-international'
-                        : order?.shipmentType === 'local'
+                        : usesLocalTimeline
                           ? 'is-local'
                           : ''
                     }`}
