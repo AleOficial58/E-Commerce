@@ -661,7 +661,7 @@ export function OrderStatusPage({
             )}
             {detailMode && order?.status === 'cancellation_refund_pending' && onCancel && (
               <div className="order-cancel-area" id="order-cancel-area">
-                <p>El reembolso sigue pendiente. Podés volver a consultar la solicitud de forma segura.</p>
+                <p>Mercado Pago todavía no confirmó el reembolso. Podés reintentar la solicitud; si el reintegro ya se hubiera procesado, Mercado Pago evita duplicarlo.</p>
                 <button
                   className="order-cancel-button"
                   type="button"
@@ -680,7 +680,7 @@ export function OrderStatusPage({
                       .finally(() => setCancelLoading(false))
                   }}
                 >
-                  {cancelLoading ? 'Consultando…' : 'Consultar reembolso'}
+                  {cancelLoading ? 'Reintentando…' : 'Reintentar reembolso'}
                 </button>
               </div>
             )}

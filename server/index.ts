@@ -731,7 +731,20 @@ async function getMercadoPagoPayment(paymentId: string): Promise<MercadoPagoPaym
   return payment as MercadoPagoPayment
 }
 
-async function refundMercadoPagoPayment(paymentId: string, orderId: string) {
+async function refundMercadoPagoPayment(
+  paymentId: string,
+  orderId: string,
+  paymentMode: unknown,
+) {
+  if (paymentMode !== 'sandbox' && paymentMode !== 'production') {
+    throw new ApiError('No se pudo determinar el modo de pago guardado para este reembolso.', 409)
+  }
+  if (paymentMode !== mercadoPagoMode) {
+    throw new ApiError(
+      `No se solicitó el reembolso: el pedido se creó en modo ${paymentMode} y la tienda está configurada en modo ${mercadoPagoMode}.`,
+      409,
+    )
+  }
   const accessToken = getMercadoPagoAccessToken()
   let response: globalThis.Response
   try {
@@ -752,10 +765,32 @@ async function refundMercadoPagoPayment(paymentId: string, orderId: string) {
     throw new ApiError('No pudimos confirmar el reembolso. La solicitud quedó pendiente y podés volver a intentar sin duplicarlo.', 502)
   }
   if (!response.ok) {
+    const errorDetail = await response.json().catch(() => null) as {
+      error?: unknown
+      message?: unknown
+      cause?: unknown
+    } | null
+    const causes = Array.isArray(errorDetail?.cause)
+      ? errorDetail.cause.slice(0, 5).flatMap((cause: unknown) => {
+          if (typeof cause !== 'object' || cause === null) return []
+          const entry = cause as Record<string, unknown>
+          return [{
+            code: typeof entry.code === 'string' || typeof entry.code === 'number'
+              ? String(entry.code).slice(0, 80)
+              : null,
+            description: typeof entry.description === 'string'
+              ? entry.description.slice(0, 240)
+              : null,
+          }]
+        })
+      : []
     console.error('Mercado Pago rechazó la solicitud de reembolso.', {
       orderId,
       paymentId,
       status: response.status,
+      error: typeof errorDetail?.error === 'string' ? errorDetail.error.slice(0, 120) : null,
+      message: typeof errorDetail?.message === 'string' ? errorDetail.message.slice(0, 240) : null,
+      causes,
     })
     throw new ApiError('Mercado Pago no pudo procesar el reembolso. El pedido sigue protegido y podés volver a intentar.', 502)
   }
@@ -866,8 +901,10 @@ async function settleMercadoPagoPayment(payment: MercadoPagoPayment) {
   }
   const orderRef = firestore.doc(`orders/${orderId}`)
   let cancellationRefundPaymentId: string | null = null
+  let cancellationRefundPaymentMode: unknown = null
   await firestore.runTransaction(async (transaction) => {
     cancellationRefundPaymentId = null
+    cancellationRefundPaymentMode = null
     const orderSnapshot = await transaction.get(orderRef)
     if (!orderSnapshot.exists) throw new ApiError('No encontramos el pedido asociado al pago.', 404)
     const order = orderSnapshot.data() ?? {}
@@ -915,6 +952,7 @@ async function settleMercadoPagoPayment(payment: MercadoPagoPayment) {
     if (paymentStatus === 'approved') {
       if (order.status === 'cancelled' && order.paymentStatus === 'cancelled') {
         cancellationRefundPaymentId = String(payment.id)
+        cancellationRefundPaymentMode = expectedPaymentMode
         transaction.update(orderRef, {
           paymentStatus: 'approved',
           paymentId: String(payment.id),
@@ -931,6 +969,7 @@ async function settleMercadoPagoPayment(payment: MercadoPagoPayment) {
       if (order.paymentStatus === 'approved') {
         if (order.status === 'cancellation_refund_pending') {
           cancellationRefundPaymentId = String(payment.id)
+          cancellationRefundPaymentMode = expectedPaymentMode
         }
         return
       }
@@ -1096,7 +1135,7 @@ async function settleMercadoPagoPayment(payment: MercadoPagoPayment) {
     }
   })
   if (cancellationRefundPaymentId) {
-    await refundMercadoPagoPayment(cancellationRefundPaymentId, orderId)
+    await refundMercadoPagoPayment(cancellationRefundPaymentId, orderId, cancellationRefundPaymentMode)
     const refreshedPayment = await getMercadoPagoPayment(cancellationRefundPaymentId)
     if (
       String(refreshedPayment.id) === cancellationRefundPaymentId &&
@@ -1858,7 +1897,7 @@ app.post(
         if (!/^\d{1,30}$/.test(paymentId)) {
           throw new ApiError('No encontramos el pago de Mercado Pago asociado para iniciar el reembolso.', 409)
         }
-        return { result: 'refund' as const, paymentId }
+        return { result: 'refund' as const, paymentId, paymentMode: order.paymentMode }
       })
 
       if (cancellation.result === 'cancelled') {
@@ -1866,7 +1905,7 @@ app.post(
         return
       }
 
-      await refundMercadoPagoPayment(cancellation.paymentId, orderId)
+      await refundMercadoPagoPayment(cancellation.paymentId, orderId, cancellation.paymentMode)
       const payment = await getMercadoPagoPayment(cancellation.paymentId)
       if (
         String(payment.id) !== cancellation.paymentId ||
