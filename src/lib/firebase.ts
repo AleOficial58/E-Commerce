@@ -22,6 +22,10 @@ export async function getFirebaseServices() {
   const app = appSdk.getApps().length
     ? appSdk.getApp()
     : appSdk.initializeApp(firebaseConfig)
+
+  // La tienda solo usa email/contraseña. `getAuth` agrega por defecto el resolver de
+  // popup/redirect, que intenta cargar https://apis.google.com/js/api.js y la política
+  // CSP (script-src 'self') lo bloquea. `initializeAuth` sin ese resolver evita la carga.
   let auth: ReturnType<typeof authSdk.getAuth>
   try {
     auth = authSdk.initializeAuth(app, {
@@ -31,15 +35,7 @@ export async function getFirebaseServices() {
         authSdk.browserSessionPersistence,
       ],
     })
-  } catch (error) {
-    if (
-      typeof error !== 'object' ||
-      error === null ||
-      !('code' in error) ||
-      error.code !== 'auth/already-initialized'
-    ) {
-      throw error
-    }
+  } catch {
     auth = authSdk.getAuth(app)
   }
 
