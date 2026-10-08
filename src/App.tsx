@@ -3961,8 +3961,39 @@ function Storefront() {
                   <AdminSalesReport user={user} />
                 ) : adminTab === 'orders' ? (
               <section className="admin-orders">
-                <div className="admin-section-heading">
-                  <div><h3>Ventas recientes</h3><p>Se actualiza automáticamente cada 12 segundos mientras el panel está abierto.</p></div>
+                  {adminOrders.some((order) => order.status === 'cancellation_refund_pending') && (
+                    <section className="admin-refund-queue" aria-labelledby="admin-refund-queue-title">
+                      <div className="admin-refund-queue-heading">
+                        <div>
+                          <h3 id="admin-refund-queue-title">Reembolsos en proceso</h3>
+                          <p>Estos pedidos aún no figuran como reembolsados. Usá el número de pedido o el ID del pago para identificarlos en Mercado Pago.</p>
+                        </div>
+                        <span className="admin-refund-queue-count">
+                          {adminOrders.filter((order) => order.status === 'cancellation_refund_pending').length}
+                        </span>
+                      </div>
+                      <div className="admin-refund-queue-list">
+                        {adminOrders
+                          .filter((order) => order.status === 'cancellation_refund_pending')
+                          .map((order) => (
+                            <article className="admin-refund-queue-item" key={order.id}>
+                              <div>
+                                <span className="admin-refund-queue-label">Número de pedido</span>
+                                <strong className="admin-refund-queue-order-id">{order.id}</strong>
+                                {order.paymentId && <span className="admin-refund-queue-payment-id">ID de pago en Mercado Pago: {order.paymentId}</span>}
+                              </div>
+                              <div className="admin-refund-queue-details">
+                                <strong>{order.customerName}</strong>
+                                <span>{order.customerEmail}</span>
+                              </div>
+                              <strong className="admin-refund-queue-total">{money.format(order.total)}</strong>
+                            </article>
+                          ))}
+                      </div>
+                    </section>
+                  )}
+                  <div className="admin-section-heading">
+                    <div><h3>Ventas recientes</h3><p>Se actualiza automáticamente cada 12 segundos mientras el panel está abierto.</p></div>
                   {adminLoading && <span className="sync-indicator" aria-label="Actualizando pedidos" />}
                 </div>
                 {adminOrders.length ? adminOrders.map((order) => (

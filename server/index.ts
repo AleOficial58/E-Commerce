@@ -3118,9 +3118,14 @@ app.get(
   requireAdmin,
   async (_request, response, next) => {
     try {
-      const snapshot = await firestore.collection('orders').orderBy('createdAt', 'desc').limit(50).get()
+      const [snapshot, pendingRefunds] = await Promise.all([
+        firestore.collection('orders').orderBy('createdAt', 'desc').limit(50).get(),
+        firestore.collection('orders').where('status', '==', 'cancellation_refund_pending').get(),
+      ])
+      const ordersById = new Map(snapshot.docs.map((order) => [order.id, order]))
+      pendingRefunds.docs.forEach((order) => ordersById.set(order.id, order))
       response.json({
-        orders: snapshot.docs.map((order) => ({ id: order.id, ...order.data() })),
+        orders: [...ordersById.values()].map((order) => ({ id: order.id, ...order.data() })),
       })
     } catch (error) {
       next(error)

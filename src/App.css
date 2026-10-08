@@ -8600,6 +8600,89 @@ html[data-theme='dark'] {
   padding: 20px;
 }
 
+.admin-refund-queue {
+  margin-bottom: 24px;
+  padding: 18px;
+  border: 1px solid #e5b7a2;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--admin-accent-soft) 30%, var(--admin-surface));
+  color: var(--admin-ink);
+}
+
+.admin-refund-queue-heading,
+.admin-refund-queue-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.admin-refund-queue-heading h3 {
+  margin: 0;
+  color: inherit;
+  font-family: var(--font-heading);
+  font-size: 15px;
+}
+
+.admin-refund-queue-heading p {
+  margin: 5px 0 0;
+  color: var(--admin-muted);
+  font-size: 11px;
+}
+
+.admin-refund-queue-count {
+  display: grid;
+  min-width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 50%;
+  background: #a94e36;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-refund-queue-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.admin-refund-queue-item {
+  flex-wrap: wrap;
+  padding: 12px;
+  border: 1px solid #efd8cc;
+  border-radius: 7px;
+  background: var(--admin-surface);
+}
+
+.admin-refund-queue-item > div {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-refund-queue-label,
+.admin-refund-queue-payment-id,
+.admin-refund-queue-details > span {
+  color: var(--admin-muted);
+  font-size: 10px;
+}
+
+.admin-refund-queue-order-id {
+  user-select: all;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.admin-refund-queue-details > strong {
+  font-size: 11px;
+}
+
+.admin-refund-queue-total {
+  margin-left: auto;
+  font-size: 14px;
+}
+
 .admin-main .admin-order-id,
 .admin-main .admin-order-customer > strong,
 .admin-main .admin-order-items strong,
@@ -8701,6 +8784,8 @@ html[data-theme='dark'] .admin-dashboard {
 }
 
 html[data-theme='dark'] .admin-main .admin-order-card,
+html[data-theme='dark'] .admin-main .admin-refund-queue,
+html[data-theme='dark'] .admin-main .admin-refund-queue-item,
 html[data-theme='dark'] .admin-main .admin-review-entry,
 html[data-theme='dark'] .admin-main .admin-review-media-card,
 html[data-theme='dark'] .admin-main .admin-product-form,
@@ -10830,6 +10915,11 @@ html[data-theme='dark'] .admin-main .admin-order-card {
 
 html[data-theme='dark'] .admin-main .admin-order-heading {
   border-bottom-color: var(--admin-line);
+}
+
+html[data-theme='dark'] .admin-main .admin-refund-queue,
+html[data-theme='dark'] .admin-main .admin-refund-queue-item {
+  border-color: var(--admin-line);
 }
 
 html[data-theme='dark'] .admin-main .admin-order-status {

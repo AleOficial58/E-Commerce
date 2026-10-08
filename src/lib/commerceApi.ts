@@ -225,6 +225,7 @@ export type AdminOrder = {
   total: number
   paymentStatus: string
   status: string
+  paymentId?: string
   paymentMethod?: string
   shipmentType?: ShipmentType
   estimatedDeliveryStart?: string
