@@ -770,6 +770,36 @@ async function getMercadoPagoPayment(
   return payment as MercadoPagoPayment
 }
 
+async function getMercadoPagoCredentialUserId(accessToken: string): Promise<number | string | null> {
+  try {
+    const response = await fetch('https://api.mercadopago.com/users/me', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!response.ok) {
+      console.warn('No se pudo identificar la cuenta asociada a las credenciales de Mercado Pago.', {
+        status: response.status,
+      })
+      return null
+    }
+    const user: unknown = await response.json()
+    if (
+      typeof user !== 'object' || user === null || !('id' in user) ||
+      (typeof user.id !== 'number' && typeof user.id !== 'string')
+    ) {
+      console.warn('Mercado Pago devolvió datos de cuenta no válidos al diagnosticar las credenciales.')
+      return null
+    }
+    return user.id
+  } catch (error) {
+    console.warn(
+      'No se pudo consultar la cuenta asociada a las credenciales de Mercado Pago.',
+      errorCode(error) || 'unknown_error',
+    )
+    return null
+  }
+}
+
 async function refundMercadoPagoPayment(
   paymentId: string,
   orderId: string,
@@ -861,6 +891,11 @@ async function refundMercadoPagoPayment(
           }]
         })
       : []
+    const authorizationFailure = response.status === 401 || response.status === 403
+    const firstCause = causes[0]
+    const credentialUserId = authorizationFailure
+      ? await getMercadoPagoCredentialUserId(accessToken)
+      : null
     console.error('Mercado Pago rechazó la solicitud de reembolso.', {
       orderId,
       paymentId,
@@ -868,9 +903,12 @@ async function refundMercadoPagoPayment(
       error: typeof errorDetail?.error === 'string' ? errorDetail.error.slice(0, 120) : null,
       message: typeof errorDetail?.message === 'string' ? errorDetail.message.slice(0, 240) : null,
       causes,
+      liveMode: payment.live_mode ?? null,
+      collectorId: payment.collector_id ?? null,
+      applicationId: payment.application_id ?? null,
+      testBuyer: isTestAccountPayment(payment),
+      credentialUserId,
     })
-    const authorizationFailure = response.status === 401 || response.status === 403
-    const firstCause = causes[0]
     const rejectionCode = `mp_refund_${response.status}${firstCause?.code ? `_${firstCause.code}` : ''}`
     // En sandbox se agrega el motivo de Mercado Pago para poder diagnosticar; en producción no se expone.
     const sandboxDetail = mercadoPagoMode === 'sandbox'
