@@ -22,10 +22,30 @@ export async function getFirebaseServices() {
   const app = appSdk.getApps().length
     ? appSdk.getApp()
     : appSdk.initializeApp(firebaseConfig)
+  let auth: ReturnType<typeof authSdk.getAuth>
+  try {
+    auth = authSdk.initializeAuth(app, {
+      persistence: [
+        authSdk.indexedDBLocalPersistence,
+        authSdk.browserLocalPersistence,
+        authSdk.browserSessionPersistence,
+      ],
+    })
+  } catch (error) {
+    if (
+      typeof error !== 'object' ||
+      error === null ||
+      !('code' in error) ||
+      error.code !== 'auth/already-initialized'
+    ) {
+      throw error
+    }
+    auth = authSdk.getAuth(app)
+  }
 
   return {
     app,
-    auth: authSdk.getAuth(app),
+    auth,
     db: firestoreSdk.getFirestore(app),
     authSdk,
     firestoreSdk,

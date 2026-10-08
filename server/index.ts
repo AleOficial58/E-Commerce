@@ -721,8 +721,35 @@ async function getMercadoPagoPayment(paymentId: string): Promise<MercadoPagoPaym
     signal: AbortSignal.timeout(10_000),
   })
   if (!response.ok) {
-    console.error('Mercado Pago no permitió consultar un pago notificado.', { status: response.status })
-    throw new ApiError('No pudimos verificar el pago notificado.', 502)
+    const errorDetail = await response.json().catch(() => null) as {
+      message?: unknown
+      cause?: unknown
+    } | null
+    const causes = Array.isArray(errorDetail?.cause)
+      ? errorDetail.cause.slice(0, 5).flatMap((cause: unknown) => {
+          if (typeof cause !== 'object' || cause === null) return []
+          const entry = cause as Record<string, unknown>
+          return [{
+            description: typeof entry.description === 'string'
+              ? entry.description.slice(0, 240)
+              : null,
+          }]
+        })
+      : []
+    console.error('Mercado Pago no permitió consultar un pago notificado.', {
+      status: response.status,
+      message: typeof errorDetail?.message === 'string' ? errorDetail.message.slice(0, 240) : null,
+      causes,
+    })
+    const lookupCause = causes[0]
+    const lookupDetail = mercadoPagoMode === 'sandbox'
+      ? ` [MP ${response.status}${lookupCause?.description ? `: ${lookupCause.description}` : typeof errorDetail?.message === 'string' ? `: ${errorDetail.message.slice(0, 160)}` : ''}]`
+      : ''
+    throw new ApiError(
+      `No pudimos verificar el pago notificado.${lookupDetail}`,
+      502,
+      `mp_payment_lookup_${response.status}`,
+    )
   }
   const payment: unknown = await response.json()
   if (typeof payment !== 'object' || payment === null || !('id' in payment)) {
@@ -735,6 +762,7 @@ async function refundMercadoPagoPayment(
   paymentId: string,
   orderId: string,
   paymentMode: unknown,
+  attempt = 0,
 ) {
   if (paymentMode !== 'sandbox' && paymentMode !== 'production') {
     throw new ApiError('No se pudo determinar el modo de pago guardado para este reembolso.', 409)
@@ -755,7 +783,10 @@ async function refundMercadoPagoPayment(
         headers: {
           Authorization: 'Bearer ' + accessToken,
           'Content-Type': 'application/json',
-          'X-Idempotency-Key': `cancel-${createHash('sha256').update(orderId).digest('hex').slice(0, 56)}`,
+          'X-Idempotency-Key': `cancel-${createHash('sha256')
+            .update(attempt > 0 ? `${orderId}:${attempt}` : orderId)
+            .digest('hex')
+            .slice(0, 56)}`,
         },
         body: JSON.stringify({}),
         signal: AbortSignal.timeout(10_000),
@@ -792,7 +823,19 @@ async function refundMercadoPagoPayment(
       message: typeof errorDetail?.message === 'string' ? errorDetail.message.slice(0, 240) : null,
       causes,
     })
-    throw new ApiError('Mercado Pago no pudo procesar el reembolso. El pedido sigue protegido y podés volver a intentar.', 502)
+    const authorizationFailure = response.status === 401 || response.status === 403
+    const firstCause = causes[0]
+    const rejectionCode = `mp_refund_${response.status}${firstCause?.code ? `_${firstCause.code}` : ''}`
+    const sandboxDetail = mercadoPagoMode === 'sandbox'
+      ? ` [MP ${response.status}${firstCause?.description ? `: ${firstCause.description}` : typeof errorDetail?.message === 'string' ? `: ${errorDetail.message.slice(0, 160)}` : ''}]`
+      : ''
+    throw new ApiError(
+      (authorizationFailure
+        ? 'Mercado Pago rechazó la autorización del reembolso. Revisá las credenciales y el modo de la cuenta; el pedido sigue protegido y no se reintentará automáticamente.'
+        : 'Mercado Pago no pudo procesar el reembolso. El pedido sigue protegido; verificá el estado del pago antes de volver a intentar.') + sandboxDetail,
+      502,
+      rejectionCode,
+    )
   }
 }
 
@@ -1882,8 +1925,18 @@ app.post(
           return { result: 'cancelled' as const, paymentId: '' }
         }
 
-        if (order.status !== 'cancellation_refund_pending') {
+        const isRefundRetry = order.status === 'cancellation_refund_pending'
+        const refundAttempt = isRefundRetry
+          ? (typeof order.refundAttempt === 'number' ? order.refundAttempt : 0) + 1
+          : 0
+        if (isRefundRetry) {
           transaction.update(orderRef, {
+            refundAttempt,
+            updatedAt: FieldValue.serverTimestamp(),
+          })
+        } else {
+          transaction.update(orderRef, {
+            refundAttempt,
             status: 'cancellation_refund_pending',
             statusHistory: FieldValue.arrayUnion({
               status: 'cancellation_refund_pending',
@@ -1897,7 +1950,7 @@ app.post(
         if (!/^\d{1,30}$/.test(paymentId)) {
           throw new ApiError('No encontramos el pago de Mercado Pago asociado para iniciar el reembolso.', 409)
         }
-        return { result: 'refund' as const, paymentId, paymentMode: order.paymentMode }
+        return { result: 'refund' as const, paymentId, paymentMode: order.paymentMode, refundAttempt }
       })
 
       if (cancellation.result === 'cancelled') {
@@ -1905,7 +1958,12 @@ app.post(
         return
       }
 
-      await refundMercadoPagoPayment(cancellation.paymentId, orderId, cancellation.paymentMode)
+      await refundMercadoPagoPayment(
+        cancellation.paymentId,
+        orderId,
+        cancellation.paymentMode,
+        cancellation.refundAttempt,
+      )
       const payment = await getMercadoPagoPayment(cancellation.paymentId)
       if (
         String(payment.id) !== cancellation.paymentId ||
