@@ -167,7 +167,7 @@ export function CustomerOrdersPage({
                     ) : isCancellationOrder(order) ? (
                       <p className="customer-order-cancelled-note">
                         {order.status === 'cancellation_refund_pending'
-                          ? 'La compra está cancelada. El pedido no se despachará mientras Mercado Pago confirma el reembolso.'
+                          ? 'La solicitud de cancelación está en proceso con el equipo de Lúmina. El pedido no se despachará mientras se gestiona el reembolso.'
                           : order.paymentStatus === 'refunded'
                             ? 'La compra fue cancelada y Mercado Pago confirmó el reembolso.'
                             : order.paymentStatus === 'cancelled'

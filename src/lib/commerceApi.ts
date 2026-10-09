@@ -461,6 +461,25 @@ export function updateAdminOrderStatus(
   })
 }
 
+export async function verifyAdminOrderRefund(
+  user: User,
+  orderId: string,
+): Promise<{ refunded: boolean; message: string }> {
+  const result = await apiRequest<unknown>(
+    user,
+    `/api/admin/orders/${encodeURIComponent(orderId)}/verify-refund`,
+    { method: 'POST' },
+  )
+  if (
+    typeof result !== 'object' || result === null ||
+    !('refunded' in result) || typeof result.refunded !== 'boolean' ||
+    !('message' in result) || typeof result.message !== 'string'
+  ) {
+    throw new Error('El servidor devolvió un resultado de verificación de reembolso no válido.')
+  }
+  return { refunded: result.refunded, message: result.message }
+}
+
 export function updateAdminShipment(
   user: User,
   orderId: string,

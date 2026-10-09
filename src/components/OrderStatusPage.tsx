@@ -87,10 +87,15 @@ function getStatusTitle(status: PaymentReturnStatus, order: CustomerOrderStatus 
 
 function getStatusMessage(status: PaymentReturnStatus, order: CustomerOrderStatus | null, message: string): string {
   if (order?.status === 'cancellation_refund_pending') {
-    return 'Solicitamos el reembolso a Mercado Pago. No se despachará el pedido mientras se confirma.'
+    return 'Recibimos tu solicitud de cancelación. El equipo gestionará el reembolso con Mercado Pago; el pedido no se despachará mientras tanto.'
   }
-  if (order?.status === 'cancelled' || order?.paymentStatus === 'refunded') {
-    return 'La compra fue cancelada. Si el pago estaba acreditado, Mercado Pago confirmó el reembolso.'
+  if (order?.paymentStatus === 'refunded') {
+    return 'La compra fue cancelada y Mercado Pago confirmó el reembolso.'
+  }
+  if (order?.status === 'cancelled') {
+    return order.paymentStatus === 'cancelled'
+      ? 'La compra se canceló antes de acreditarse el pago; no se realizó ningún cobro.'
+      : 'La compra fue cancelada.'
   }
   if (status === 'checking') return 'Estamos consultando el estado confirmado por Mercado Pago.'
   if (status === 'error') return message || 'No pudimos consultar tu pedido. Podés volver a intentarlo.'
@@ -233,10 +238,10 @@ export function OrderStatusPage({
     const confirmation = await showConfirmation({
       icon: 'warning',
       iconColor: '#a76f7d',
-      title: '¿Cancelar esta compra?',
-      text: 'Si el pago ya fue aprobado, solicitaremos el reembolso a Mercado Pago. Esta acción no se puede deshacer.',
+      title: '¿Solicitar la cancelación?',
+      text: 'Si el pago ya fue aprobado, enviaremos la solicitud al equipo para gestionar el reembolso con Mercado Pago. El pedido quedará bloqueado para despacho.',
       showCancelButton: true,
-      confirmButtonText: 'Sí, cancelar compra',
+      confirmButtonText: 'Enviar solicitud',
       cancelButtonText: 'Volver',
       reverseButtons: true,
       customClass: {
@@ -473,7 +478,7 @@ export function OrderStatusPage({
               )}
               {order?.status === 'cancellation_refund_pending' && (
                 <div className="order-status-note" role="status">
-                  {cancelMessage || 'El pedido está bloqueado para despacho mientras Mercado Pago confirma el reembolso.'}
+                  {cancelMessage || 'Tu solicitud está pendiente. El equipo gestionará el reembolso manualmente con Mercado Pago; el pedido no se despachará.'}
                 </div>
               )}
               {(order?.status === 'cancelled' || order?.paymentStatus === 'refunded') && (
@@ -648,40 +653,20 @@ export function OrderStatusPage({
             {receiptError && <p className="order-cancel-error" role="alert">{receiptError}</p>}
             {detailMode && order?.canCancel && onCancel && (
               <div className="order-cancel-area" id="order-cancel-area">
-                <p>Podés cancelar antes de que el equipo despache el pedido. Si el pago ya fue acreditado, se solicitará el reembolso a Mercado Pago.</p>
+                <p>Podés solicitar la cancelación antes del despacho. Si el pago ya fue acreditado, el equipo gestionará el reembolso manualmente con Mercado Pago.</p>
                 <button
                   className="order-cancel-button"
                   type="button"
                   disabled={cancelLoading}
                   onClick={() => void handleCancelPurchase()}
                 >
-                  {cancelLoading ? 'Procesando cancelación…' : 'Cancelar compra'}
+                  {cancelLoading ? 'Enviando solicitud…' : 'Solicitar cancelación'}
                 </button>
               </div>
             )}
-            {detailMode && order?.status === 'cancellation_refund_pending' && onCancel && (
+            {detailMode && order?.status === 'cancellation_refund_pending' && (
               <div className="order-cancel-area" id="order-cancel-area">
-                <p>Mercado Pago todavía no confirmó el reembolso. Podés reintentar la solicitud; si el reintegro ya se hubiera procesado, Mercado Pago evita duplicarlo.</p>
-                <button
-                  className="order-cancel-button"
-                  type="button"
-                  disabled={cancelLoading}
-                  onClick={() => {
-                    setCancelLoading(true)
-                    setCancelError('')
-                    void onCancel()
-                      .then((result) => {
-                        setCancelMessage(result.message)
-                        onRefresh()
-                      })
-                      .catch((error: unknown) => {
-                        setCancelError(error instanceof Error ? error.message : 'No se pudo consultar el reembolso.')
-                      })
-                      .finally(() => setCancelLoading(false))
-                  }}
-                >
-                  {cancelLoading ? 'Reintentando…' : 'Reintentar reembolso'}
-                </button>
+                <p>La solicitud llegó al equipo de Lúmina. Gestionaremos la devolución en Mercado Pago y actualizaremos este pedido cuando la plataforma confirme el reembolso.</p>
               </div>
             )}
             {cancelError && <p className="order-cancel-error" role="alert">{cancelError}</p>}

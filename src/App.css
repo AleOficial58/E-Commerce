@@ -8683,6 +8683,12 @@ html[data-theme='dark'] {
   font-size: 14px;
 }
 
+.admin-refund-queue-action {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+}
+
 .admin-main .admin-order-id,
 .admin-main .admin-order-customer > strong,
 .admin-main .admin-order-items strong,

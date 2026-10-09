@@ -27,6 +27,7 @@ import {
   revokeOwnAdminAccess,
   updateAdminShipment,
   updateAdminOrderStatus,
+  verifyAdminOrderRefund,
   type AdminOrder,
   type AdminShipmentUpdate,
   type CustomerOrderStatus,
@@ -1099,6 +1100,7 @@ function Storefront() {
   const [adminAccessibility, setAdminAccessibility] = useState(readAdminAccessibilitySettings)
   const [adminOrders, setAdminOrders] = useState<AdminOrder[]>([])
   const [adminLoading, setAdminLoading] = useState(false)
+  const [adminRefundVerificationBusy, setAdminRefundVerificationBusy] = useState('')
   const [adminWishlistCounts, setAdminWishlistCounts] = useState<Record<string, number>>({})
   const [adminWishlistLoading, setAdminWishlistLoading] = useState(false)
   const [adminWishlistError, setAdminWishlistError] = useState('')
@@ -2935,6 +2937,22 @@ function Storefront() {
     }
   }
 
+  async function handleAdminRefundVerification(orderId: string) {
+    if (!user || !isAdmin || adminRefundVerificationBusy) return
+    setAdminRefundVerificationBusy(orderId)
+    setAdminError('')
+    try {
+      const result = await verifyAdminOrderRefund(user, orderId)
+      setAdminOrders(await loadAdminOrders(user))
+      setNotice(result.message)
+    } catch (error) {
+      console.error('No se pudo verificar el reembolso en Mercado Pago.')
+      setAdminError(error instanceof Error ? error.message : 'No se pudo verificar el reembolso en Mercado Pago.')
+    } finally {
+      setAdminRefundVerificationBusy('')
+    }
+  }
+
   async function handleAdminShipmentSave(event: FormEvent<HTMLFormElement>, orderId: string) {
     event.preventDefault()
     if (!user || !isAdmin || adminShipmentBusy) return
@@ -3966,7 +3984,7 @@ function Storefront() {
                       <div className="admin-refund-queue-heading">
                         <div>
                           <h3 id="admin-refund-queue-title">Reembolsos en proceso</h3>
-                          <p>Estos pedidos aún no figuran como reembolsados. Usá el número de pedido o el ID del pago para identificarlos en Mercado Pago.</p>
+                          <p>Gestioná primero la devolución en Mercado Pago. Después verificá el estado para cerrar la solicitud en Lúmina.</p>
                         </div>
                         <span className="admin-refund-queue-count">
                           {adminOrders.filter((order) => order.status === 'cancellation_refund_pending').length}
@@ -3986,7 +4004,19 @@ function Storefront() {
                                 <strong>{order.customerName}</strong>
                                 <span>{order.customerEmail}</span>
                               </div>
-                              <strong className="admin-refund-queue-total">{money.format(order.total)}</strong>
+                              <div className="admin-refund-queue-action">
+                                <strong className="admin-refund-queue-total">{money.format(order.total)}</strong>
+                                <button
+                                  className="admin-order-action"
+                                  type="button"
+                                  disabled={Boolean(adminRefundVerificationBusy)}
+                                  onClick={() => void handleAdminRefundVerification(order.id)}
+                                >
+                                  {adminRefundVerificationBusy === order.id
+                                    ? 'Verificando en Mercado Pago…'
+                                    : 'Verificar devolución'}
+                                </button>
+                              </div>
                             </article>
                           ))}
                       </div>
@@ -4005,7 +4035,9 @@ function Storefront() {
                     <div className="admin-order-customer"><strong>{order.customerName}</strong><span>{order.customerEmail}</span><span>{order.shipping.address}{order.shipping.apartment ? `, ${order.shipping.apartment}` : ''}, {order.shipping.city}, {order.shipping.province} {order.shipping.postalCode}</span></div>
                     <div className="admin-order-items">{order.items.map((item) => <div key={item.id}><span>{item.quantity} × {item.name}</span><strong>{money.format(item.lineTotal)}</strong></div>)}</div>
                     <div className="admin-order-total"><span>{getPaymentStatusLabel(order.paymentStatus)} · envío {order.shippingCost ? money.format(order.shippingCost) : 'gratis'}</span><strong>{money.format(order.total)}</strong></div>
-                    {order.paymentStatus === 'approved' && order.status !== 'delivered' && (
+                    {order.paymentStatus === 'approved' &&
+                      order.status !== 'delivered' &&
+                      order.status !== 'cancellation_refund_pending' && (
                       <details className="admin-shipment-editor">
                         <summary>Configurar envío y seguimiento</summary>
                         <form onSubmit={(event) => void handleAdminShipmentSave(event, order.id)}>
