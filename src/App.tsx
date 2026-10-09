@@ -3596,7 +3596,12 @@ function Storefront() {
         <div className="footer-top">
           <a className="wordmark footer-wordmark" href="#inicio">lúmina<span className="wordmark-star">✳</span></a>
           <p>Un detalle, todo tu estilo.<br />Hecho con amor en Buenos Aires.</p>
-          <div className="footer-links"><a href="#productos">La colección</a><a href="#novedades">Nuestra inspiración</a><button onClick={() => (user ? setAccountOpen(true) : setAuthOpen(true))}>Mi cuenta</button></div>
+          <div className="footer-links">
+            <a href="#productos">La colección</a>
+            <a href="#novedades">Nuestra inspiración</a>
+            <button type="button" onClick={() => setShoppingGuideOpen(true)}>Guía para clientes</button>
+            <button type="button" onClick={() => (user ? setAccountOpen(true) : setAuthOpen(true))}>Mi cuenta</button>
+          </div>
           <span className="social-note">Atención responsable · Lúmina</span>
         </div>
         <div className="footer-bottom"><span>© 2026 Lúmina. Todos los detalles reservados.</span><span>Hecho para brillar <b>✳</b></span></div>
@@ -4513,21 +4518,74 @@ function Storefront() {
               <Icon name="close" />
             </button>
             <span className="shopping-guide-mark" aria-hidden="true"><Icon name="sparkles" size={21} /></span>
-            <span className="eyebrow section-eyebrow">TU PRIMERA COMPRA</span>
-            <h2 id="shopping-guide-title">Comprar en Lúmina es simple</h2>
-            <p className="shopping-guide-intro" id="shopping-guide-description">Te acompañamos desde que encontrás tu favorito hasta que podés seguir el estado de tu pedido.</p>
+            <span className="eyebrow section-eyebrow">GUÍA PARA CLIENTES</span>
+            <h2 id="shopping-guide-title">Todo lo que podés hacer en Lúmina</h2>
+            <p className="shopping-guide-intro" id="shopping-guide-description">
+              Recorré estos nueve pasos para conocer la tienda, tu cuenta, las compras y cómo seguir cada pedido.
+            </p>
             <ol className="shopping-guide-steps">
               <li>
                 <span className="shopping-guide-step-number">01</span>
-                <div><h3>Explorá y elegí</h3><p>Buscá por categoría o usá los filtros. En cada producto podés ver fotos, precio, stock y opiniones.</p></div>
+                <div>
+                  <h3>Explorá y encontrá productos</h3>
+                  <p>Recorré las categorías, novedades y ofertas. Usá el buscador (Ctrl/⌘ K), filtrá por categoría y ordená por recomendación, novedad, puntuación o precio. En móvil, abrí la búsqueda con el botón de la lupa.</p>
+                </div>
               </li>
               <li>
                 <span className="shopping-guide-step-number">02</span>
-                <div><h3>Armá tu bolso</h3><p>Agregá tus favoritos y ajustá las cantidades. Antes de seguir, revisá el subtotal y el envío estimado.</p></div>
+                <div>
+                  <h3>Revisá el detalle y guardá favoritos</h3>
+                  <p>Abrí un producto para ver sus fotos, descripción, características, precio, disponibilidad y opiniones. Tocá el corazón para guardarlo. Los favoritos quedan en este navegador si todavía no iniciaste sesión y se sincronizan con tu cuenta al ingresar.</p>
+                </div>
               </li>
               <li>
                 <span className="shopping-guide-step-number">03</span>
-                <div><h3>Pagá y seguí tu pedido</h3><p>Ingresá o creá tu cuenta, completá la entrega y pagá en Mercado Pago. Después podrás consultar el estado en “Mis compras”.</p></div>
+                <div>
+                  <h3>Prepará tu bolso</h3>
+                  <p>Agregá productos y cambiá las cantidades desde la tienda o el bolso. El límite es de 20 unidades por producto y nunca puede superar el stock disponible. Antes de continuar, revisá el subtotal y el costo de envío estimado; el total definitivo se valida en el checkout.</p>
+                </div>
+              </li>
+              <li>
+                <span className="shopping-guide-step-number">04</span>
+                <div>
+                  <h3>Creá tu cuenta y completá tu perfil</h3>
+                  <p>Para pagar necesitás ingresar o registrarte con email y contraseña. Verificá tu email para habilitar las opiniones de compras verificadas. Desde “Mi cuenta” podés actualizar tus datos de contacto y dirección, ver tus favoritos y compras, y recuperar la contraseña desde el enlace de acceso.</p>
+                </div>
+              </li>
+              <li>
+                <span className="shopping-guide-step-number">05</span>
+                <div>
+                  <h3>Pagá con Mercado Pago</h3>
+                  <p>En el checkout confirmá el domicilio y los datos de entrega. Lúmina vuelve a validar precios y stock antes de crear el pedido; el stock queda reservado temporalmente mientras se completa el pago. Mercado Pago procesa la operación y confirma su resultado a Lúmina. No vuelvas a pagar si el estado todavía figura pendiente.</p>
+                </div>
+              </li>
+              <li>
+                <span className="shopping-guide-step-number">06</span>
+                <div>
+                  <h3>Seguí la compra y recibí novedades</h3>
+                  <p>En “Mis compras” abrí un pedido para ver su número, estado de pago, artículos, entrega estimada y, cuando esté disponible, el seguimiento del envío. El centro de notificaciones muestra cambios y mensajes mientras la tienda está abierta; no son notificaciones push. Podés marcar avisos como leídos y configurar por separado los sonidos de interacción y de novedades.</p>
+                </div>
+              </li>
+              <li>
+                <span className="shopping-guide-step-number">07</span>
+                <div>
+                  <h3>Escribinos o solicitá cancelar</h3>
+                  <p>En compras activas y entregadas, el detalle permite enviar mensajes al equipo sobre ese pedido. Antes del despacho, también podés solicitar la cancelación. Si el pago ya fue acreditado, el reembolso requiere gestión manual del equipo en Mercado Pago: “en proceso” significa que se recibió la solicitud, no que el dinero ya se devolvió. Lúmina actualiza el pedido cuando confirma el reembolso y cierra el chat de ese caso. Para compras ya despachadas, contactanos desde el chat para consultar opciones.</p>
+                </div>
+              </li>
+              <li>
+                <span className="shopping-guide-step-number">08</span>
+                <div>
+                  <h3>Dejá una opinión y descargá comprobantes</h3>
+                  <p>Después de una compra aprobada y con el email verificado podés publicar una opinión; las fotos y videos adjuntos pasan por moderación antes de mostrarse. Desde el detalle también podés descargar el comprobante informativo de compra o, una vez confirmado, una constancia de reembolso. Ninguno reemplaza una factura fiscal ni el comprobante oficial de Mercado Pago.</p>
+                </div>
+              </li>
+              <li>
+                <span className="shopping-guide-step-number">09</span>
+                <div>
+                  <h3>Personalizá tu experiencia</h3>
+                  <p>Usá el control del encabezado para cambiar entre tema claro y oscuro. Si iniciás sesión, el bolso y los favoritos se sincronizan con tu cuenta; al salir, tu sesión se cierra desde “Mi cuenta”.</p>
+                </div>
               </li>
             </ol>
             <button className="button button-dark shopping-guide-cta" type="button" onClick={() => {

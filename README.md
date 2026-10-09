@@ -214,6 +214,7 @@ Para revisar el diseño localmente sin enviar correos ni cambiar contraseñas, a
   - `users/{userId}/cart/{productId}`
 - Para visitantes, favoritos y bolso se guardan en el navegador. Al iniciar sesión se combinan con los datos de la cuenta.
 - Diseño adaptable a escritorio y móvil.
+- Guía interactiva para clientes, accesible desde la tienda y el pie de página: explica catálogo, favoritos, bolso, cuenta, pago, notificaciones, seguimiento, cancelaciones, opiniones y comprobantes.
 
 ## Dependencias externas e inventario técnico
 
@@ -309,6 +310,8 @@ En desarrollo local se mantiene el proxy `/api` de Vite; `npm run dev:full` inic
 
 ## Comandos
 
+GitHub Actions ejecuta automáticamente la auditoría de dependencias, lint, build, verificación de tipos de la API y pruebas en cada pull request y push a `master`, usando Node.js 22. No requiere secretos porque las comprobaciones no conectan con proveedores externos. Dependabot propone semanalmente actualizaciones de paquetes npm y GitHub Actions; cada PR queda sujeto a estas mismas comprobaciones antes de poder integrarse.
+
 ```powershell
 npm install
 npm run dev
@@ -320,7 +323,7 @@ npm run typecheck:api
 npm test
 ```
 
-`npm test` ejecuta pruebas unitarias de la lógica pura de reportes con `node:test` y `tsx`. El proyecto aún no tiene pruebas end-to-end contra Firebase, Mercado Pago, Cloudinary o email; esas integraciones requieren entornos de prueba y credenciales aisladas.
+`npm test` ejecuta pruebas unitarias de lógica de negocio (modo de pago, etiquetas de estado, fechas de entrega, reportes y constancias PDF) con `node:test` y `tsx`. El proyecto aún no tiene pruebas de integración contra las reglas de Firestore, endpoints de la API, Mercado Pago, Cloudinary o email; esas integraciones requieren emuladores, entornos de prueba y credenciales aisladas.
 
 ## Despliegue y puntos pendientes
 
