@@ -63,8 +63,9 @@ function getOrderFulfillmentStage(order: CustomerOrderStatus): string {
 }
 
 function getStatusTitle(status: PaymentReturnStatus, order: CustomerOrderStatus | null): string {
-  if (order?.status === 'cancellation_refund_pending') return 'Reembolso en proceso'
-  if (order?.status === 'cancelled' || order?.paymentStatus === 'refunded') return 'Compra cancelada'
+  if (order?.status === 'cancellation_refund_pending') return 'Solicitud de cancelación recibida'
+  if (order?.paymentStatus === 'refunded') return 'Reembolso confirmado'
+  if (order?.status === 'cancelled') return 'Compra cancelada'
   if (status === 'checking') return 'Estamos verificando tu compra'
   if (status === 'error') return 'No pudimos actualizar el estado'
   if (status === 'failed') return 'El pago no se completó'
@@ -87,15 +88,15 @@ function getStatusTitle(status: PaymentReturnStatus, order: CustomerOrderStatus 
 
 function getStatusMessage(status: PaymentReturnStatus, order: CustomerOrderStatus | null, message: string): string {
   if (order?.status === 'cancellation_refund_pending') {
-    return 'Recibimos tu solicitud de cancelación. El equipo gestionará el reembolso con Mercado Pago; el pedido no se despachará mientras tanto.'
+    return 'El equipo de Lúmina gestionará la devolución en Mercado Pago. Tu pedido no se despachará mientras tanto.'
   }
   if (order?.paymentStatus === 'refunded') {
-    return 'La compra fue cancelada y Mercado Pago confirmó el reembolso.'
+    return 'Mercado Pago confirmó la devolución de tu pago. La compra quedó cancelada.'
   }
   if (order?.status === 'cancelled') {
     return order.paymentStatus === 'cancelled'
       ? 'La compra se canceló antes de acreditarse el pago; no se realizó ningún cobro.'
-      : 'La compra fue cancelada.'
+      : 'La compra quedó cancelada. Si el pago se había acreditado, contactá al equipo de Lúmina para consultar el estado de la devolución.'
   }
   if (status === 'checking') return 'Estamos consultando el estado confirmado por Mercado Pago.'
   if (status === 'error') return message || 'No pudimos consultar tu pedido. Podés volver a intentarlo.'
@@ -155,6 +156,7 @@ export function OrderStatusPage({
     if (status !== 'approved' || !order) return -1
     return fulfillmentSteps.findIndex((step) => step.status === fulfillmentStage)
   })()
+  const isRefundConfirmed = order?.paymentStatus === 'refunded'
   const paymentLabel = order?.paymentStatus === 'refunded'
     ? 'Reembolsado'
     : order?.paymentStatus === 'cancelled' || order?.status === 'cancelled'
@@ -203,13 +205,13 @@ export function OrderStatusPage({
     order?.paymentStatus === 'approved' &&
     order.status !== 'cancelled' &&
     order.status !== 'cancellation_refund_pending'
-  const showOrderMessages = detailMode || (
+  const showOrderMessages = !isRefundConfirmed && (detailMode || (
     !showPurchaseCelebration &&
     status === 'approved' &&
     order?.paymentStatus === 'approved' &&
     order.status !== 'cancelled' &&
     order.status !== 'cancellation_refund_pending'
-  )
+  ))
   const showDeliveryCelebration = detailMode &&
     deliveryCelebration &&
     order?.status === 'delivered'
@@ -219,6 +221,13 @@ export function OrderStatusPage({
     order.paymentStatus === 'cancelled' ||
     order.paymentStatus === 'refunded'
   ))
+  const resolvedOrderStatus = order?.status === 'cancellation_refund_pending'
+    ? 'refund-pending'
+    : order?.paymentStatus === 'refunded'
+      ? 'refunded'
+      : order?.status === 'cancelled' || order?.paymentStatus === 'cancelled'
+        ? 'cancelled'
+        : null
   const orderHelpOptions = order?.status === 'delivered'
     ? [
         ['Consultar una devolución o reembolso', 'Hola, mi pedido figura como entregado y quiero consultar los pasos para una devolución o un posible reembolso. ¿Me pueden orientar?'],
@@ -271,12 +280,11 @@ export function OrderStatusPage({
   }
 
   async function handleReceiptAction(action: 'download' | 'print') {
-    if (
-      !order ||
-      order.paymentStatus !== 'approved' ||
-      order.status === 'cancelled' ||
-      order.status === 'cancellation_refund_pending'
-    ) return
+    if (!order) return
+    const isEligiblePurchaseReceipt = order.paymentStatus === 'approved' &&
+      order.status !== 'cancelled' &&
+      order.status !== 'cancellation_refund_pending'
+    if (!isEligiblePurchaseReceipt && !isRefundConfirmed) return
     const printWindow = action === 'print' ? window.open('', '_blank') : null
     if (action === 'print' && !printWindow) {
       setReceiptError('Permití las ventanas emergentes para abrir e imprimir el comprobante.')
@@ -286,10 +294,13 @@ export function OrderStatusPage({
     setReceiptBusy(true)
     setReceiptError('')
     try {
-      const { createPurchaseReceiptPdf } = await import('../lib/purchaseReceipt')
-      const pdf = createPurchaseReceiptPdf(order, money)
+      const receiptModule = await import('../lib/purchaseReceipt')
+      const pdf = isRefundConfirmed
+        ? receiptModule.createRefundReceiptPdf(order, money)
+        : receiptModule.createPurchaseReceiptPdf(order, money)
       if (action === 'download') {
-        pdf.save(`Comprobante-Lumina-${order.id}.pdf`)
+        const receiptName = isRefundConfirmed ? 'Constancia-Devolucion' : 'Comprobante'
+        pdf.save(`${receiptName}-Lumina-${order.id}.pdf`)
         return
       }
       pdf.autoPrint()
@@ -326,7 +337,7 @@ export function OrderStatusPage({
         <div className={`order-page-grid${showPurchaseCelebration ? ' is-purchase-confirmation' : ''}`}>
           <div className="order-page-main">
             <section
-              className={`order-status-card is-${status}${
+              className={`order-status-card is-${resolvedOrderStatus ?? status}${
                 showPurchaseCelebration ? ' has-purchase-celebration' : ''
               }${showDeliveryCelebration ? ' has-delivery-celebration' : ''}`}
               aria-live="polite"
@@ -382,7 +393,16 @@ export function OrderStatusPage({
               ) : (
                 <div className="order-status-heading">
                   <span className="order-status-icon" aria-hidden="true">
-                    {status === 'approved' ? '✓' : status === 'failed' || status === 'error' ? '!' : '…'}
+                    {resolvedOrderStatus === 'refunded' ||
+                    (resolvedOrderStatus === 'cancelled' && order?.paymentStatus === 'cancelled')
+                      ? '✓'
+                      : resolvedOrderStatus === 'refund-pending'
+                        ? '…'
+                        : status === 'approved'
+                          ? '✓'
+                          : status === 'failed' || status === 'error'
+                            ? '!'
+                            : '…'}
                   </span>
                   <div>
                     <span className="eyebrow section-eyebrow">
@@ -473,36 +493,24 @@ export function OrderStatusPage({
                 </>
               )}
 
-              {status === 'review' && (
+              {!resolvedOrderStatus && status === 'review' && (
                 <div className="order-status-note">Te avisaremos cuando el pedido esté listo para prepararse.</div>
               )}
-              {order?.status === 'cancellation_refund_pending' && (
-                <div className="order-status-note" role="status">
-                  {cancelMessage || 'Tu solicitud está pendiente. El equipo gestionará el reembolso manualmente con Mercado Pago; el pedido no se despachará.'}
-                </div>
-              )}
-              {(order?.status === 'cancelled' || order?.paymentStatus === 'refunded') && (
-                <div className="order-status-note">
-                  {order.paymentStatus === 'refunded'
-                    ? 'La compra fue cancelada y Mercado Pago confirmó el reembolso.'
-                    : 'La compra fue cancelada y no continuará con el envío.'}
-                </div>
-              )}
-              {status === 'pending' && (
+              {!resolvedOrderStatus && status === 'pending' && (
                 <div className="order-status-note">No vuelvas a pagar mientras Mercado Pago procesa la operación.</div>
               )}
-              {status === 'failed' && (
+              {!resolvedOrderStatus && status === 'failed' && (
                 <div className="order-status-note">Si creés que hubo un error, consultá el estado nuevamente antes de iniciar otro pago.</div>
               )}
               {status === 'checking' && !order && (
                 <div className="order-loading" role="status">Cargando los datos del pedido…</div>
               )}
-              {status === 'error' && (
+              {!resolvedOrderStatus && status === 'error' && (
                 <button className="button button-dark profile-save-button" type="button" onClick={onRefresh}>
                   Volver a consultar
                 </button>
               )}
-              {['pending', 'review'].includes(status) && (
+              {!resolvedOrderStatus && ['pending', 'review'].includes(status) && (
                 <button className="order-refresh-button" type="button" onClick={onRefresh}>
                   Actualizar estado
                 </button>
@@ -532,33 +540,35 @@ export function OrderStatusPage({
                   )}
                 </section>
 
-                <section className="order-page-card">
-                  <h2>Información de entrega</h2>
-                  {address ? (
-                    <address className="order-shipping-address">
-                      <strong>{address.name}</strong>
-                      <span>{address.address}{address.apartment ? `, ${address.apartment}` : ''}</span>
-                      <span>{address.city}, {address.province} {address.postalCode}</span>
-                      <span>{address.phone}</span>
-                    </address>
-                  ) : (
-                    <p className="order-loading">La dirección aparecerá cuando podamos consultar el pedido.</p>
-                  )}
-                  {order?.status === 'shipped' && (
-                    <div className="order-tracking-note">
-                      {order.trackingCarrier && <strong>Correo: {order.trackingCarrier}</strong>}
-                      {order.trackingCode && <span>Código de seguimiento: {order.trackingCode}</span>}
-                      {order.trackingUrl && (
-                        <a href={order.trackingUrl} target="_blank" rel="noreferrer">Seguir paquete</a>
-                      )}
-                      {!order.trackingCode && !order.trackingUrl &&
-                        <span>El paquete fue marcado como enviado. El equipo actualizará el seguimiento a medida que haya novedades.</span>}
-                    </div>
-                  )}
-                </section>
+                {!isRefundConfirmed && (
+                  <section className="order-page-card">
+                    <h2>Información de entrega</h2>
+                    {address ? (
+                      <address className="order-shipping-address">
+                        <strong>{address.name}</strong>
+                        <span>{address.address}{address.apartment ? `, ${address.apartment}` : ''}</span>
+                        <span>{address.city}, {address.province} {address.postalCode}</span>
+                        <span>{address.phone}</span>
+                      </address>
+                    ) : (
+                      <p className="order-loading">La dirección aparecerá cuando podamos consultar el pedido.</p>
+                    )}
+                    {order?.status === 'shipped' && (
+                      <div className="order-tracking-note">
+                        {order.trackingCarrier && <strong>Correo: {order.trackingCarrier}</strong>}
+                        {order.trackingCode && <span>Código de seguimiento: {order.trackingCode}</span>}
+                        {order.trackingUrl && (
+                          <a href={order.trackingUrl} target="_blank" rel="noreferrer">Seguir paquete</a>
+                        )}
+                        {!order.trackingCode && !order.trackingUrl &&
+                          <span>El paquete fue marcado como enviado. El equipo actualizará el seguimiento a medida que haya novedades.</span>}
+                      </div>
+                    )}
+                  </section>
+                )}
               </>
             )}
-            {detailMode && (
+            {detailMode && !isRefundConfirmed && (
               <section className="order-page-card order-help" aria-labelledby="order-help-title">
                 <h2 id="order-help-title">
                   {order?.status === 'delivered' ? 'Ayuda después de la entrega' : 'Ayuda con la compra'}
@@ -603,7 +613,13 @@ export function OrderStatusPage({
           </div>
 
           <aside className="order-page-card order-purchase-summary">
-            <h2>{showPurchaseCelebration ? 'Resumen de tu compra' : 'Detalle de la compra'}</h2>
+            <h2>
+              {showPurchaseCelebration
+                ? 'Resumen de tu compra'
+                : isRefundConfirmed
+                  ? 'Detalle del reembolso'
+                  : 'Detalle de la compra'}
+            </h2>
             <dl>
               <div><dt>Número de pedido</dt><dd>{order?.id ?? orderId}</dd></div>
               {formattedDate && <div><dt>Fecha</dt><dd>{formattedDate}</dd></div>}
@@ -623,16 +639,39 @@ export function OrderStatusPage({
               )}
               {order && <div><dt>Productos</dt><dd>{money.format(order.subtotal)}</dd></div>}
               {order && <div><dt>Envío</dt><dd>{order.shippingCost ? money.format(order.shippingCost) : 'Gratis'}</dd></div>}
-              {order && <div className="order-summary-total"><dt>Total</dt><dd>{money.format(order.total)}</dd></div>}
+              {order && (
+                <div className="order-summary-total">
+                  <dt>{isRefundConfirmed ? 'Total devuelto' : 'Total'}</dt>
+                  <dd>{money.format(order.total)}</dd>
+                </div>
+              )}
             </dl>
             <p>
               {showPurchaseCelebration
                 ? 'Tu pago fue confirmado por Mercado Pago. Este comprobante no es una factura fiscal.'
+                : isRefundConfirmed
+                  ? 'Mercado Pago confirmó la devolución. La constancia de Lúmina es informativa y no reemplaza el comprobante oficial de Mercado Pago ni una factura fiscal.'
                 : detailMode
                 ? 'El avance se actualiza cuando Lúmina cambia el estado del pedido.'
                 : 'El estado del pedido se actualiza cuando recibimos la confirmación de Mercado Pago.'}
             </p>
-            {order?.paymentStatus === 'approved' &&
+            {isRefundConfirmed && (
+              <div className="order-receipt-actions">
+                <button
+                  className="order-receipt-button"
+                  type="button"
+                  onClick={() => void handleReceiptAction('download')}
+                  disabled={receiptBusy}
+                >{receiptBusy ? 'Preparando constancia…' : 'Descargar constancia de reembolso'}</button>
+                <button
+                  className="order-receipt-button order-receipt-print"
+                  type="button"
+                  onClick={() => void handleReceiptAction('print')}
+                  disabled={receiptBusy}
+                >Imprimir constancia</button>
+              </div>
+            )}
+            {!isRefundConfirmed && order?.paymentStatus === 'approved' &&
               order.status !== 'cancelled' &&
               order.status !== 'cancellation_refund_pending' && (
                 <div className="order-receipt-actions">

@@ -2961,7 +2961,8 @@ main {
 
 .order-status-card.is-pending .order-status-icon,
 .order-status-card.is-checking .order-status-icon,
-.order-status-card.is-review .order-status-icon {
+.order-status-card.is-review .order-status-icon,
+.order-status-card.is-refund-pending .order-status-icon {
   background: #fff4df;
   color: #a47a39;
 }
